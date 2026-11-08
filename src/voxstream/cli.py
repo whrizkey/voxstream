@@ -64,10 +64,25 @@ def doctor() -> None:
 @providers_app.command("list")
 def list_providers() -> None:
     """List available and active STT, translation, and TTS providers."""
-    console.print("\n[bold]Configured Providers[/bold]")
-    console.print(" • STT: faster_whisper, openai_compat, fake")
-    console.print(" • Translation: openai_compat, anthropic, deepl, fake")
-    console.print(" • TTS: edge, openai, elevenlabs, piper, fake\n")
+    from rich.table import Table
+
+    from voxstream.providers.registry import available_providers
+
+    console.print("\n[bold]VoxStream Provider Capabilities[/bold]\n")
+
+    for kind in ("stt", "translate", "tts"):
+        table = Table(title=f"{kind.upper()} Providers", show_header=True)
+        table.add_column("Provider", style="cyan", width=18)
+        table.add_column("Status", width=12)
+        table.add_column("Reason / Configuration", style="dim")
+
+        for status in available_providers(kind):
+            status_text = "[green]Ready[/green]" if status.is_usable else "[red]Disabled[/red]"
+            detail = status.reason or "Configured and usable"
+            table.add_row(status.name, status_text, detail)
+
+        console.print(table)
+        console.print()
 
 
 @app.command()
