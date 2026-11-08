@@ -2,7 +2,7 @@
 
 import os
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 # Workaround for httpx 0.28+ urlparse bug when NO_PROXY contains bracketed IPv6 like [::1]
 for _env_key in ("NO_PROXY", "no_proxy"):

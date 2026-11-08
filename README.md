@@ -1,7 +1,10 @@
 # VoxStream
 
-> **Status: Pre-alpha (Active Development)**  
-> Milestone 0 bootstrap complete. CLI commands and pipeline components are under active development. See [Milestones](#milestones) below.
+[![CI](https://github.com/whrizkey/voxstream/actions/workflows/ci.yml/badge.svg)](https://github.com/whrizkey/voxstream/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Type checked: mypy](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
 
 Most video translation workflows are offline batch jobs: you feed in a 45-minute video, wait 15 minutes for Whisper and a cloud TTS provider to transcribe, translate, and synthesize everything, and only then get a dub back. That is fine for publishing content, but it does not work when you simply want to sit down and watch an untranslated talk, foreign documentary, or overseas stream right now.
 
@@ -33,16 +36,29 @@ Translating and dubbing on the fly is fundamentally a timing problem, not just a
    - **Fix:** VoxStream computes a character and duration budget (`max_chars`) based on language-specific speaking rates and passes it into the translation prompt. If the synthesized audio is still slightly too long, it applies pitch-preserving time stretching (up to 1.25x). If it still exceeds the gap, it retranslates once with a tighter paraphrase constraint.
 
 2. **Chunk boundaries cutting mid-sentence:** Audio split naively every 30 seconds will chop words in half and hallucinate punctuation.
-   - **Fix:** VoxStream runs voice activity detection (VAD) around candidate boundaries to snap cuts to natural silences, pads each chunk with 2 seconds of audio context, and de-duplicates segments using midpoint ownership.
+   - **Fix:** VoxStream runs energy-based voice activity detection around candidate boundaries to snap cuts to natural silences, pads each chunk with 2 seconds of audio context, and de-duplicates segments using midpoint ownership.
 
 3. **Audio clock drift:** Bluetooth headphones, buffer underruns, and operating system audio mixers cause independent audio streams to drift out of sync over time.
    - **Fix:** The VoxStream audio mixer anchors its sample timeline directly to `mpv`'s `time-pos` clock. If the monotonic drift between the player clock and the dub mixer exceeds 80ms, it smoothly crossfades back into sync instead of hard-cutting.
 
 ---
 
+## Feature Matrix
+
+| Feature | Subtitles (`subs`) | Dubbing (`dub`) | Combined (`both`) |
+|---|:---:|:---:|:---:|
+| **Live Playback Sync** | Yes (OSD overlay) | Yes (Ducked mixer) | Yes |
+| **Offline Export** | `.srt` / `.ass` | Ducked `.wav` | Muxed `.mp4` / `.mkv` |
+| **Seek Recovery** | < 250ms resync | Dynamic buffer refill | Full state invalidation |
+| **Speaker Diarization** | Speaker labels | Multi-voice routing | Supported |
+| **Background Separation** | N/A | Vocal cut / BGM mix | Supported |
+| **Dual Subtitles** | Top original / Bottom translated | N/A | Supported |
+
+---
+
 ## Architecture & Providers
 
-All speech and language models sit behind clean, decoupled Python protocols. You can swap between 100% local offline execution and cloud APIs:
+All speech and language models sit behind abstract Python protocols. You can run 100% locally and offline without external API keys, or connect cloud providers:
 
 | Stage | Default / Local | Cloud / Alternatives |
 |---|---|---|
@@ -54,32 +70,19 @@ All speech and language models sit behind clean, decoupled Python protocols. You
 
 ---
 
-## Prerequisites
-
-VoxStream relies on standard multimedia tools:
-
-- **Python 3.11+**
-- **FFmpeg & FFprobe:** Installed on your system `PATH`.
-- **libmpv:** Required for video rendering.
-  - **Linux (Ubuntu/Debian):** `sudo apt install ffmpeg libmpv-dev libmpv2`
-  - **macOS (Homebrew):** `brew install ffmpeg mpv`
-  - **Windows:** Download static builds of `ffmpeg` and `mpv-dev` and add them to your `PATH`.
-
----
-
 ## Quickstart
 
 VoxStream is packaged with modern Python tooling using `uv`:
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/whrizkey/voxstream.git
 cd voxstream
 
-# Install dependencies in an isolated virtual environment
+# 2. Install dependencies in an isolated virtual environment
 uv sync --all-extras
 
-# Run the system diagnostic to verify your environment
+# 3. Verify your system dependencies and audio devices
 uv run voxstream doctor
 ```
 
@@ -103,7 +106,9 @@ VoxStream System Diagnostics
 
 ---
 
-## Planned CLI Usage
+## CLI Usage
+
+### 1. Live Playback
 
 ```bash
 # Watch a video with live translated Japanese subtitles
@@ -112,56 +117,184 @@ voxstream play lecture.mp4 --to ja --mode subs
 # Watch a video dubbed into Spanish while ducking original audio
 voxstream play interview.mkv --to es --mode dub
 
-# Offline processing: produce .srt, dub .wav, and muxed .mp4 without playing
-voxstream process documentary.mp4 --to de --out ./output/ --mux
+# Watch with both dual-language subtitles and dubbing
+voxstream play presentation.mp4 --to de --mode both
 
-# Manage local segment & transcription cache
+# Stream and translate directly from an online URL via yt-dlp
+voxstream play "https://www.youtube.com/watch?v=..." --to es --mode subs
+```
+
+### 2. Offline Batch Processing
+
+If you want to produce clean deliverable files for publishing or offline viewing:
+
+```bash
+# Export standard SubRip (.srt) subtitles
+voxstream process talk.mp4 --to es --mode subs --out ./output/
+
+# Export styled Advanced SubStation Alpha (.ass) subtitles with anime preset
+voxstream process talk.mp4 --to ja --mode subs --out ./output/
+
+# Produce a dubbed multi-track video file (remuxed with original video)
+voxstream process documentary.mp4 --to de --mode dub --out ./output/ --mux
+
+# Produce dual-language subtitles (original audio on top, translation below)
+voxstream export-srt talk.mp4 --to es --dual --out ./output/talk_dual.srt
+```
+
+### 3. Desktop Application GUI
+
+Launch the desktop player interface with embedded video rendering, interactive timeline seek bar showing processed lookahead buffers, and masked API key settings:
+
+```bash
+voxstream gui
+# or open directly with a file:
+voxstream gui movie.mp4
+```
+
+### 4. Cache Management
+
+All transcriptions, translations, and synthesized audio chunks are stored in a persistent SQLite WAL cache. If you pause, seek back, or replay a video, cached cues load instantly:
+
+```bash
+# Inspect cache size, entry count, and hit rates
 voxstream cache info
+
+# Prune old cache entries to keep size under 5 GB
 voxstream cache prune --max-gb 5
+
+# Clear entire cache
+voxstream cache clear
 ```
 
 ---
 
-## Milestones & Roadmap
+## Configuration & Provider Setup
 
-- [x] **M0: Bootstrap & Architecture Skeleton** (Current)
-  - Typed project structure, `pyproject.toml`, ruff/mypy/pytest CI.
-  - `voxstream doctor` diagnostic command.
-  - Protocol specifications and core data models.
-- [ ] **M1: Provider Foundation & Offline Fixtures**
-  - Concrete `SttProvider`, `TranslateProvider`, and `TtsProvider` protocols.
-  - Fake mock providers for 100% offline unit/integration test coverage without API keys.
-- [ ] **M2: Subtitles Pipeline (`process --mode subs`)**
-  - Silence-aware chunking, midpoint de-duplication, and SRT export.
-- [ ] **M3: Dubbing Pipeline (`process --mode dub`)**
-  - Time-fit algorithm, duration scaling, ducked audio export.
-- [ ] **M4: Live Player & Subtitles**
-  - mpv event loop integration and look-ahead chunk scheduler.
-- [ ] **M5: Live Dubbing Mixer**
-  - Real-time PortAudio mixer with monotonic clock slaved to mpv `time-pos`.
-- [ ] **M6: Extended Provider Suite & Cost Accounting**
-  - Anthropic, DeepL, ElevenLabs, Piper, token/cost estimation before playback.
-- [ ] **M7: Desktop UI (PySide6 / Qt6)**
-  - Embedded player window, seek-buffer progress bar, and settings dialog.
+Copy `.env.example` to `.env` to configure your preferred providers and API keys:
+
+```bash
+cp .env.example .env
+```
+
+### Local-Only Air-Gapped Profile (Zero API Keys)
+
+To run completely offline with no network requests:
+
+```bash
+# STT: faster-whisper runs locally on CPU or CUDA GPU
+VOXSTREAM_STT_PROVIDER=faster_whisper
+VOXSTREAM_WHISPER_MODEL=base
+
+# Translation: Point to a local Ollama or LM Studio instance
+VOXSTREAM_TRANSLATE_PROVIDER=openai_compat
+VOXSTREAM_OPENAI_BASE_URL=http://localhost:11434/v1
+VOXSTREAM_OPENAI_MODEL=llama3.2
+
+# TTS: Local neural voices using Piper or Edge-TTS
+VOXSTREAM_TTS_PROVIDER=piper
+```
+
+### Cloud Profile (OpenAI / Anthropic / DeepL / ElevenLabs)
+
+```bash
+# Cloud STT (fast transcription on low-end CPUs)
+VOXSTREAM_STT_PROVIDER=openai_compat_stt
+OPENAI_API_KEY=sk-...
+
+# High-fidelity translation
+VOXSTREAM_TRANSLATE_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Studio-quality voice synthesis
+VOXSTREAM_TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=...
+```
+
+Inspect active capabilities and missing keys at any time:
+
+```bash
+voxstream providers list
+```
+
+---
+
+## Cost Controls & Usage Accounting
+
+VoxStream tracks every audio second transcribed and character translated or synthesized. Costs are calculated against `pricing.toml`:
+
+```toml
+[pricing]
+openai_compat_stt = 0.000100   # ~$0.006 per minute
+anthropic = 0.000001           # ~$1.00 per 1M characters
+elevenlabs = 0.000150          # $150.00 per 1M characters
+```
+
+### Hard Safety Ceiling
+
+Set `VOXSTREAM_MAX_COST_USD` in your `.env` to prevent unexpected cloud bills:
+
+```bash
+# Abort processing if estimated session cost exceeds $2.50
+VOXSTREAM_MAX_COST_USD=2.50
+```
+
+When a run finishes, a clear cost breakdown table is printed to your console.
+
+---
+
+## Privacy & Data Handling
+
+| Provider | What leaves your machine? | Destination |
+|---|---|---|
+| `faster_whisper` | Nothing (runs on local CPU/GPU) | Localhost |
+| `piper` | Nothing (runs on local CPU) | Localhost |
+| `openai_compat` (Ollama) | Nothing | Localhost |
+| `openai_compat` (Cloud) | Audio chunks (STT) or text snippets | OpenAI API |
+| `anthropic` | Text snippets for translation | Anthropic API |
+| `deepl` | Text snippets for translation | DeepL API |
+| `edge` | Text snippets for voice synthesis | Microsoft Edge TTS endpoints |
+| `elevenlabs` | Text snippets for voice synthesis | ElevenLabs API |
+
+> [!NOTE]
+> VoxStream never logs API keys. All credentials are redacted from console output, file logs, and error traces.
+
+---
+
+## Known Limitations
+
+- **Speed Changes:** When video playback speed is set to anything other than `1.0x` during live dubbing, dub audio is temporarily muted and original audio plays at the selected speed. Subtitles remain active. Returning to `1.0x` automatically resumes dubbing.
+- **CPU Performance on Local STT:** Running `faster-whisper` large models on low-end dual-core CPUs may result in real-time factors > 1.0, causing the lookahead buffer to underrun. On machines without a discrete GPU, use `tiny` or `base` models, or use a cloud STT provider.
+- **libmpv Embedding:** Embedded GUI rendering requires `libmpv` dynamic libraries (`libmpv.so.2` on Linux, `libmpv.dylib` on macOS, `mpv-2.dll` on Windows). If not found, run `voxstream doctor` for installation instructions.
 
 ---
 
 ## Testing
 
-VoxStream uses `pytest` with a fake provider suite to test the entire media pipeline without hitting external networks or requiring API tokens:
+VoxStream includes a comprehensive offline test suite running property-based tests (`hypothesis`) and contract tests across all providers without requiring network access:
 
 ```bash
-# Run unit and integration tests
+# Run full unit and integration test suite
 uv run pytest
 
-# Run linting and type checking
+# Check code formatting and strict type checks
 uv run ruff check .
 uv run mypy
 ```
 
 ---
 
+## Documentation
+
+- [Architecture & Timing Synchronization](docs/ARCHITECTURE.md)
+- [Provider Setup & API Guide](docs/PROVIDERS.md)
+- [Technical Design Decisions](docs/DECISIONS.md)
+- [Contributing Guidelines](docs/CONTRIBUTING.md)
+- [Third-Party Licenses](docs/LICENSES.md)
+
+---
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).  
-Dependencies such as `libmpv` are linked dynamically.
+Dependencies such as `libmpv` are linked dynamically and retain their respective open-source licenses.
