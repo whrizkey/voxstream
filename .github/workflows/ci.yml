@@ -48,13 +48,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up FFmpeg (Linux & Windows)
-        if: runner.os != 'macOS'
-        uses: FedericoCarboni/setup-ffmpeg@v3
+      - name: Set up FFmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Set up FFmpeg (macOS)
         if: runner.os == 'macOS'
         run: brew install ffmpeg
+
+      - name: Set up FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        uses: FedericoCarboni/setup-ffmpeg@v3
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
