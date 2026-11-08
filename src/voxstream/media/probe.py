@@ -24,7 +24,23 @@ def probe_media(path_or_url: str | Path) -> MediaProbeResult:
     """Probe media file or stream URL using ffprobe."""
     ffprobe_bin = shutil.which("ffprobe")
     if not ffprobe_bin:
-        raise MediaError("ffprobe binary not found on system PATH. Install ffmpeg to probe media.")
+        # Fallback to soundfile for audio files if ffprobe binary is absent
+        try:
+            import soundfile as sf
+
+            info = sf.info(str(path_or_url))
+            return MediaProbeResult(
+                path_or_url=str(path_or_url),
+                duration=float(info.duration),
+                has_audio=True,
+                has_video=False,
+                audio_sample_rate=int(info.samplerate),
+                audio_channels=int(info.channels),
+            )
+        except Exception:
+            raise MediaError(
+                "ffprobe binary not found on system PATH. Install ffmpeg to probe media."
+            ) from None
 
     target_str = str(path_or_url)
     if not target_str.startswith(("http://", "https://")):
