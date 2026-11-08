@@ -86,6 +86,20 @@ def list_providers() -> None:
 
 
 @app.command()
+def gui(
+    target: Annotated[str | None, typer.Argument(help="Optional video file path to open.")] = None,
+) -> None:
+    """Launch the VoxStream desktop GUI application."""
+    from voxstream.ui.app import run_desktop_app
+
+    try:
+        run_desktop_app(target)
+    except Exception as exc:
+        console.print(f"[bold red]Failed to start desktop GUI:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
 def play(
     target: Annotated[str, typer.Argument(help="Video file path or stream URL.")],
     to: Annotated[str, typer.Option("--to", "-t", help="Target language code (e.g. ja, es, de).")],
