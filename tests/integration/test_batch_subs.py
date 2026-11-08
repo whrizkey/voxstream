@@ -36,11 +36,13 @@ async def test_batch_offline_subtitles_and_cache(test_video_wav: Path) -> None:
         out_dir = Path(out_dir_str)
 
         # Run 1: Cold run
+        test_cache_dir = out_dir / "cache"
         stats1 = await process_media_offline(
             input_path=test_video_wav,
             target_lang="es",
             output_dir=out_dir,
             mode="subs",
+            cache_dir=test_cache_dir,
         )
 
         assert stats1["total_chunks"] == 2
@@ -58,6 +60,7 @@ async def test_batch_offline_subtitles_and_cache(test_video_wav: Path) -> None:
             target_lang="es",
             output_dir=out_dir,
             mode="subs",
+            cache_dir=test_cache_dir,
         )
 
         assert stats2["total_chunks"] == 2
