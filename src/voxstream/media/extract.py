@@ -21,7 +21,24 @@ def extract_audio_chunk(
     """Extract an audio slice to 16-bit PCM WAV using input-side fast seeking."""
     ffmpeg_bin = shutil.which("ffmpeg")
     if not ffmpeg_bin:
-        raise MediaError("ffmpeg binary not found on PATH. Install ffmpeg to extract audio.")
+        # Fallback for local audio files using soundfile if ffmpeg is absent
+        try:
+            import numpy as np
+            import soundfile as sf
+
+            data, sr = sf.read(str(input_media))
+            start_frame = int(max(0.0, start_seconds) * sr)
+            end_frame = int((start_seconds + duration_seconds) * sr)
+            slice_data = data[start_frame:end_frame]
+            if slice_data.ndim > 1 and channels == 1:
+                slice_data = np.mean(slice_data, axis=1)
+            output_wav.parent.mkdir(parents=True, exist_ok=True)
+            sf.write(str(output_wav), slice_data, sr, subtype="PCM_16")
+            return output_wav
+        except Exception:
+            raise MediaError(
+                "ffmpeg binary not found on PATH. Install ffmpeg to extract audio."
+            ) from None
 
     output_wav.parent.mkdir(parents=True, exist_ok=True)
     temp_wav = output_wav.with_suffix(".tmp.wav")

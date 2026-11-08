@@ -1,5 +1,8 @@
+import os
 from collections.abc import Generator
 from typing import Any
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 

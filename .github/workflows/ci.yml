@@ -52,6 +52,10 @@ jobs:
         if: runner.os != 'macOS'
         uses: FedericoCarboni/setup-ffmpeg@v3
 
+      - name: Set up FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
