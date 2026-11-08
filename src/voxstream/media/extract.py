@@ -43,15 +43,21 @@ def extract_audio_chunk(
     output_wav.parent.mkdir(parents=True, exist_ok=True)
     temp_wav = output_wav.with_suffix(".tmp.wav")
 
+    input_str = str(input_media)
+    if not input_str.startswith(("http://", "https://")) and input_str.startswith("-"):
+        input_str = f"./{input_str}"
+
     cmd = [
         ffmpeg_bin,
         "-y",
+        "-protocol_whitelist",
+        "file,http,https,tcp,tls,crypto",
         "-ss",
         f"{max(0.0, start_seconds):.3f}",
         "-t",
         f"{duration_seconds:.3f}",
         "-i",
-        str(input_media),
+        input_str,
         "-vn",
         "-ac",
         str(channels),

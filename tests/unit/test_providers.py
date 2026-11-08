@@ -113,3 +113,39 @@ def test_registry_factories() -> None:
 
     tts = get_tts_provider("fake")
     assert tts.name == "fake"
+
+
+@pytest.mark.asyncio
+async def test_edge_tts_voice_selection_with_running_loop() -> None:
+    from voxstream.providers.tts.edge import EdgeTtsProvider
+
+    provider = EdgeTtsProvider()
+    voices = provider.list_voices("es")
+    assert len(voices) > 0
+    assert any(
+        "es" in v.lang.lower() or "es-" in v.id.lower() or "alvaro" in v.id.lower() for v in voices
+    )
+
+    voices_fr = await provider.list_voices_async("fr")
+    assert len(voices_fr) > 0
+    assert any(
+        "fr" in v.lang.lower() or "fr-" in v.id.lower() or "denise" in v.id.lower()
+        for v in voices_fr
+    )
+
+
+def test_unusable_provider_raises_configuration_error(
+    monkeypatch: pytest.MonkeyPatch, sample_wav: Path
+) -> None:
+    from voxstream.errors import ConfigurationError
+    from voxstream.playback.controller import PlaybackController
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("VOXSTREAM_STT_PROVIDER", "openai_compat_stt")
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        PlaybackController(
+            media_path=sample_wav,
+            target_lang="es",
+        )
+    assert "not usable" in str(exc_info.value)

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import sqlite3
 import time
 from collections.abc import Generator
@@ -217,7 +218,11 @@ class CacheManager:
             )
 
     def get_media_dir(self, media_id: str) -> Path:
-        media_dir = self.cache_dir / media_id
+        validate_media_id(media_id)
+        media_dir = (self.cache_dir / media_id).resolve()
+        cache_dir_resolved = self.cache_dir.resolve()
+        if not media_dir.is_relative_to(cache_dir_resolved) or media_dir == cache_dir_resolved:
+            raise ValueError(f"Path traversal detected for media_id: '{media_id}'")
         media_dir.mkdir(parents=True, exist_ok=True)
         return media_dir
 
@@ -243,13 +248,20 @@ class CacheManager:
 
     def clear(self, media_id: str | None = None) -> None:
         with self._get_connection() as conn:
-            if media_id:
+            if media_id is not None:
+                validate_media_id(media_id)
+                media_path = (self.cache_dir / media_id).resolve()
+                cache_dir_resolved = self.cache_dir.resolve()
+                if (
+                    not media_path.is_relative_to(cache_dir_resolved)
+                    or media_path == cache_dir_resolved
+                ):
+                    raise ValueError(f"Path traversal detected for media_id: '{media_id}'")
                 conn.execute("DELETE FROM media WHERE media_id=?", (media_id,))
                 conn.execute("DELETE FROM chunks WHERE media_id=?", (media_id,))
                 conn.execute("DELETE FROM transcripts WHERE media_id=?", (media_id,))
                 conn.execute("DELETE FROM translations WHERE media_id=?", (media_id,))
                 conn.execute("DELETE FROM clips WHERE media_id=?", (media_id,))
-                media_path = self.cache_dir / media_id
                 if media_path.exists():
                     import shutil
 
@@ -260,6 +272,38 @@ class CacheManager:
                 conn.execute("DELETE FROM transcripts")
                 conn.execute("DELETE FROM translations")
                 conn.execute("DELETE FROM clips")
+
+    def prune(self, max_bytes: int) -> int:
+        """Prune media directories ordered by least recently used (LRU) until cache <= max_bytes."""
+        if max_bytes < 0:
+            raise ValueError("max_bytes must be non-negative")
+
+        total_size = sum(f.stat().st_size for f in self.cache_dir.rglob("*") if f.is_file())
+        if total_size <= max_bytes:
+            return 0
+
+        removed_count = 0
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT media_id FROM media ORDER BY last_used_at ASC").fetchall()
+            for r in rows:
+                mid = str(r["media_id"])
+                self.clear(mid)
+                removed_count += 1
+                total_size = sum(f.stat().st_size for f in self.cache_dir.rglob("*") if f.is_file())
+                if total_size <= max_bytes:
+                    break
+        return removed_count
+
+
+MEDIA_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+
+
+def validate_media_id(media_id: str) -> None:
+    """Validate media_id is a 32-character hexadecimal string."""
+    if not isinstance(media_id, str) or not MEDIA_ID_PATTERN.match(media_id):
+        raise ValueError(
+            f"Invalid media_id format: '{media_id}'. Expected 32-character hexadecimal string."
+        )
 
 
 def make_stt_key(provider_name: str, model: str, language: str | None, chunk_params: str) -> str:

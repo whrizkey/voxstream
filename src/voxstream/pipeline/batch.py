@@ -1,10 +1,12 @@
 """Batch offline processing pipeline for subtitles and dubbing."""
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from voxstream.config import get_settings
+from voxstream.errors import ConfigurationError
 from voxstream.export.dubtrack import render_dub_track
 from voxstream.export.srt import export_srt
 from voxstream.media.extract import extract_audio_chunk
@@ -17,10 +19,11 @@ from voxstream.pipeline.cache import (
     make_stt_key,
     make_translate_key,
 )
-from voxstream.pipeline.chunker import plan_chunks
+from voxstream.pipeline.chunker import create_silence_finder, plan_chunks
 from voxstream.pipeline.synthesize import synthesize_and_fit_segment
 from voxstream.pipeline.transcribe import transcribe_chunk
 from voxstream.pipeline.translate import translate_segments
+from voxstream.providers.accounting import UsageTracker
 from voxstream.providers.base import SttProvider, TranslateProvider, TtsProvider
 from voxstream.providers.registry import (
     check_provider_usable,
@@ -62,26 +65,41 @@ async def process_media_offline(
     audio_dir.mkdir(parents=True, exist_ok=True)
     tts_dir.mkdir(parents=True, exist_ok=True)
 
-    # 2. Plan chunks
+    # 2. Plan chunks with silence snapping
+    silence_finder = create_silence_finder(input_path)
     chunks = plan_chunks(
         total_duration=probe.duration,
         chunk_seconds=settings.chunk_seconds,
         overlap_seconds=settings.chunk_overlap_seconds,
+        silence_finder=silence_finder,
     )
 
     if stt_provider is None:
         status = check_provider_usable("stt", settings.stt_provider)
-        stt_provider = get_stt_provider(settings.stt_provider if status.is_usable else "fake")
+        if not status.is_usable and settings.stt_provider != "fake":
+            raise ConfigurationError(
+                f"STT provider '{settings.stt_provider}' is not usable: {status.reason}"
+            )
+        stt_provider = get_stt_provider(settings.stt_provider)
 
     if translate_provider is None:
         t_status = check_provider_usable("translate", settings.translate_provider)
-        translate_provider = get_translate_provider(
-            settings.translate_provider if t_status.is_usable else "fake"
-        )
+        if not t_status.is_usable and settings.translate_provider != "fake":
+            raise ConfigurationError(
+                f"Translation provider '{settings.translate_provider}' is not usable: {t_status.reason}"
+            )
+        translate_provider = get_translate_provider(settings.translate_provider)
 
     if tts_provider is None and mode in ("dub", "both"):
         tts_status = check_provider_usable("tts", settings.tts_provider)
-        tts_provider = get_tts_provider(settings.tts_provider if tts_status.is_usable else "fake")
+        if not tts_status.is_usable and settings.tts_provider != "fake":
+            raise ConfigurationError(
+                f"TTS provider '{settings.tts_provider}' is not usable: {tts_status.reason}"
+            )
+        tts_provider = get_tts_provider(settings.tts_provider)
+
+    # Initialize usage and budget tracker
+    tracker = UsageTracker(max_cost_usd=settings.max_cost_usd)
 
     chunk_params = f"{settings.chunk_seconds}:{settings.chunk_overlap_seconds}"
     stt_key = make_stt_key(stt_provider.name, settings.stt_model, source_lang, chunk_params)
@@ -98,12 +116,13 @@ async def process_media_offline(
     cache_hits = 0
     context_lines: list[str] = []
 
-    # Extract original full audio if dubbing
+    # Extract original full audio non-blockingly if dubbing
     original_audio_wav: Path | None = None
     if mode in ("dub", "both") and probe.has_audio:
         original_audio_wav = audio_dir / "full_original.wav"
         if not original_audio_wav.exists():
-            extract_audio_chunk(
+            await asyncio.to_thread(
+                extract_audio_chunk,
                 input_path,
                 original_audio_wav,
                 start_seconds=0.0,
@@ -121,12 +140,14 @@ async def process_media_offline(
             cache_hits += 1
         else:
             chunk_wav = audio_dir / f"chunk_{chunk.index}.wav"
-            extract_audio_chunk(
+            await asyncio.to_thread(
+                extract_audio_chunk,
                 input_path,
                 chunk_wav,
                 start_seconds=chunk.extraction_start,
                 duration_seconds=chunk.extraction_duration,
             )
+            tracker.record_stt(stt_provider.name, chunk.extraction_duration)
             segments = await transcribe_chunk(
                 stt_provider,
                 chunk_wav,
@@ -143,6 +164,8 @@ async def process_media_offline(
         if cached_translations is not None:
             translations = cached_translations
         else:
+            char_count = sum(len(s.text) for s in segments)
+            tracker.record_translation(translate_provider.name, char_count)
             translations = await translate_segments(
                 translate_provider,
                 segments,
@@ -164,6 +187,7 @@ async def process_media_offline(
             next_start = (
                 all_translations[idx + 1].seg.start if idx + 1 < len(all_translations) else None
             )
+            tracker.record_tts(tts_provider.name, len(trans_seg.text))
             clip = await synthesize_and_fit_segment(
                 trans_seg,
                 next_start,
@@ -218,4 +242,6 @@ async def process_media_offline(
         "srt_path": srt_path,
         "dub_wav_path": dub_wav_path,
         "muxed_path": muxed_path,
+        "cost_usd": tracker.estimate_cost_usd(),
+        "usage_tracker": tracker,
     }

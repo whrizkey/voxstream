@@ -23,7 +23,7 @@ async def test_scheduler_seek_increments_generation() -> None:
         scheduler = LookaheadScheduler(
             playhead_fn=lambda: 0.0,
             chunks=chunks,
-            media_id="test1",
+            media_id="0123456789abcdef0123456789abcdef",
             media_path=Path("/dummy.wav"),
             cache=cache,
             stt_provider=FakeSttProvider(),
@@ -51,7 +51,7 @@ async def test_scheduler_buffering_notifications() -> None:
         scheduler = LookaheadScheduler(
             playhead_fn=lambda: 0.0,
             chunks=chunks,
-            media_id="test1",
+            media_id="0123456789abcdef0123456789abcdef",
             media_path=Path("/dummy.wav"),
             cache=cache,
             stt_provider=FakeSttProvider(),
@@ -68,3 +68,30 @@ async def test_scheduler_buffering_notifications() -> None:
         scheduler.chunk_states[0] = ChunkState.READY
         scheduler._check_underrun(5.0)
         assert buffering_events == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_stuck_chunk_retry_after_seek(sample_wav: Path) -> None:
+    chunks = [
+        ChunkSpec(index=0, start=0.0, end=5.0, pad_before=0.0, pad_after=0.5),
+    ]
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        cache = CacheManager(Path(tmp_dir))
+        scheduler = LookaheadScheduler(
+            playhead_fn=lambda: 1.0,
+            chunks=chunks,
+            media_id="0123456789abcdef0123456789abcdef",
+            media_path=sample_wav,
+            cache=cache,
+            stt_provider=FakeSttProvider(),
+            translate_provider=FakeTranslateProvider(),
+            target_lang="es",
+            lookahead_seconds=10.0,
+        )
+        # Simulate chunk stuck in TRANSCRIBED state due to generation bump on seek
+        scheduler.chunk_states[0] = ChunkState.TRANSCRIBED
+        scheduler.generation = 1
+
+        # step() should re-schedule and advance it to READY
+        await scheduler.step()
+        assert scheduler.chunk_states[0] == ChunkState.READY

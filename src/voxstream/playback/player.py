@@ -19,6 +19,10 @@ class Player(Protocol):
 
     def set_speed(self, speed: float) -> None: ...
 
+    def set_volume(self, volume: float) -> None: ...
+
+    def get_volume(self) -> float: ...
+
     def get_time_pos(self) -> float: ...
 
     def get_duration(self) -> float: ...
@@ -38,6 +42,7 @@ class VirtualPlayer:
         self._time_pos: float = 0.0
         self._paused: bool = True
         self._speed: float = 1.0
+        self._volume: float = 100.0
         self._last_wall_time: float = time.monotonic()
         self._time_callbacks: list[Callable[[float], None]] = []
         self._seek_callbacks: list[Callable[[float], None]] = []
@@ -65,6 +70,12 @@ class VirtualPlayer:
     def set_speed(self, speed: float) -> None:
         self._update_pos()
         self._speed = max(0.1, min(4.0, speed))
+
+    def set_volume(self, volume: float) -> None:
+        self._volume = max(0.0, min(100.0, volume))
+
+    def get_volume(self) -> float:
+        return self._volume
 
     def _update_pos(self) -> None:
         if not self._paused:
@@ -102,15 +113,24 @@ class MpvPlayer:
     """libmpv wrapper through python-mpv."""
 
     def __init__(self, **mpv_kwargs: Any) -> None:
+        self._time_callbacks: list[Callable[[float], None]] = []
+        self._seek_callbacks: list[Callable[[float], None]] = []
+        self._volume: float = 100.0
         try:
             import mpv
 
             self._mpv = mpv.MPV(osc=True, ytdl=True, **mpv_kwargs)
+
+            # Observe time-pos property for player time synchronization
+            @self._mpv.property_observer("time-pos")  # type: ignore[untyped-decorator]
+            def _on_time_pos(_name: str, value: Any) -> None:
+                if value is not None:
+                    pos = float(value)
+                    for cb in self._time_callbacks:
+                        cb(pos)
+
         except Exception:
             self._mpv = None
-
-        self._time_callbacks: list[Callable[[float], None]] = []
-        self._seek_callbacks: list[Callable[[float], None]] = []
 
     def load(self, media_path: Path | str) -> None:
         if self._mpv:
@@ -133,6 +153,16 @@ class MpvPlayer:
     def set_speed(self, speed: float) -> None:
         if self._mpv:
             self._mpv.speed = speed
+
+    def set_volume(self, volume: float) -> None:
+        self._volume = max(0.0, min(100.0, volume))
+        if self._mpv:
+            self._mpv.volume = self._volume
+
+    def get_volume(self) -> float:
+        if self._mpv and self._mpv.volume is not None:
+            return float(self._mpv.volume)
+        return self._volume
 
     def get_time_pos(self) -> float:
         if self._mpv and self._mpv.time_pos is not None:

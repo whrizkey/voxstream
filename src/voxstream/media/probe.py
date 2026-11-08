@@ -47,15 +47,20 @@ def probe_media(path_or_url: str | Path) -> MediaProbeResult:
         path_obj = Path(path_or_url)
         if not path_obj.exists():
             raise MediaError(f"Media file does not exist: {target_str}")
+        if target_str.startswith("-"):
+            target_str = f"./{target_str}"
 
     cmd = [
         ffprobe_bin,
         "-v",
         "error",
+        "-protocol_whitelist",
+        "file,http,https,tcp,tls,crypto",
         "-show_entries",
         "format=duration:stream=codec_type,r_frame_rate,sample_rate,channels",
         "-of",
         "json",
+        "--",
         target_str,
     ]
 

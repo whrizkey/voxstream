@@ -14,7 +14,7 @@ from voxstream.pipeline.cache import (
 def test_cache_manager_crud() -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         cache = CacheManager(Path(tmp_dir))
-        media_id = "test_media_999"
+        media_id = "0123456789abcdef0123456789abcdef"
 
         cache.record_media(media_id, "/path/to/vid.mp4", 120.0)
         cache.touch_media(media_id)
@@ -69,3 +69,44 @@ def test_cache_manager_crud() -> None:
         # Clear
         cache.clear(media_id)
         assert cache.get_transcript(media_id, 0, stt_key) is None
+
+
+def test_cache_manager_path_traversal_prevention() -> None:
+    import pytest
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        cache = CacheManager(Path(tmp_dir))
+
+        # Relative traversal
+        with pytest.raises(ValueError, match="Invalid media_id format"):
+            cache.clear("../precious")
+
+        with pytest.raises(ValueError, match="Invalid media_id format"):
+            cache.get_media_dir("../precious")
+
+        # Absolute traversal
+        with pytest.raises(ValueError, match="Invalid media_id format"):
+            cache.clear("/tmp/precious")
+
+        # Non-hex characters
+        with pytest.raises(ValueError, match="Invalid media_id format"):
+            cache.clear("invalid_media_id_not_32_hex_chars!")
+
+
+def test_cache_manager_prune() -> None:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        cache = CacheManager(Path(tmp_dir))
+        m1 = "11111111111111111111111111111111"
+        m2 = "22222222222222222222222222222222"
+
+        d1 = cache.get_media_dir(m1)
+        d2 = cache.get_media_dir(m2)
+        (d1 / "test.bin").write_bytes(b"A" * 1024)
+        (d2 / "test.bin").write_bytes(b"B" * 2048)
+
+        cache.record_media(m1, "/p1.mp4", 10.0)
+        cache.record_media(m2, "/p2.mp4", 20.0)
+
+        # Prune down to 1500 bytes (should remove m1)
+        removed = cache.prune(max_bytes=2500)
+        assert removed >= 1

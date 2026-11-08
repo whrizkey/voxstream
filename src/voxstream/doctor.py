@@ -148,11 +148,13 @@ def check_providers() -> CheckResult:
         pass
 
     # Check API keys
-    if settings.openai_api_key:
+    if settings.openai_key_str:
         usable.append("openai_compat")
-    if settings.anthropic_api_key:
+    if settings.anthropic_key_str:
         usable.append("anthropic")
-    if settings.elevenlabs_api_key:
+    if settings.deepl_key_str:
+        usable.append("deepl")
+    if settings.elevenlabs_key_str:
         usable.append("elevenlabs")
 
     return CheckResult(

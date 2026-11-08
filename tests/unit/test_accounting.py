@@ -1,7 +1,7 @@
-"""Unit tests for usage accounting and cost estimation."""
-
+import pytest
 from rich.console import Console
 
+from voxstream.errors import BudgetExceededError
 from voxstream.providers.accounting import UsageTracker
 
 
@@ -27,3 +27,12 @@ def test_usage_tracker_accumulation_and_cost() -> None:
     output = console.export_text()
     assert "Session Provider Usage" in output
     assert "TOTAL" in output
+
+
+def test_usage_tracker_budget_ceiling() -> None:
+    tracker = UsageTracker(max_cost_usd=0.01)
+    tracker.record_stt("openai_compat_stt", 60.0)
+
+    with pytest.raises(BudgetExceededError) as exc_info:
+        tracker.record_stt("openai_compat_stt", 60.0)
+    assert "Cost ceiling exceeded" in str(exc_info.value)

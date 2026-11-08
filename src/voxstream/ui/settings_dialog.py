@@ -32,6 +32,35 @@ else:
 from voxstream.config import get_settings
 
 
+def _load_keyring_secret(service: str, username: str, fallback: str | None) -> str:
+    """Read a stored secret from the system keyring if available."""
+    try:
+        import keyring
+
+        val = keyring.get_password(service, username)
+        if val:
+            return str(val)
+    except Exception:
+        pass
+    return fallback or ""
+
+
+def _save_keyring_secret(service: str, username: str, value: str) -> None:
+    """Store or remove a secret in the system keyring."""
+    try:
+        import keyring
+
+        if value:
+            keyring.set_password(service, username, value)
+        else:
+            try:
+                keyring.delete_password(service, username)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 class SettingsDialog(QDialog if HAS_QT else object):  # type: ignore[misc]
     """Modal dialog for configuring providers, parameters, and masked API credentials."""
 
@@ -62,18 +91,36 @@ class SettingsDialog(QDialog if HAS_QT else object):  # type: ignore[misc]
         self.tts_combo.setCurrentText(self.settings.tts_provider)
         form.addRow("TTS Provider:", self.tts_combo)
 
-        # Masked API Keys (password echo mode)
+        # Masked API Keys (password echo mode with keyring integration)
         self.openai_key = QLineEdit()
         self.openai_key.setEchoMode(QLineEdit.EchoMode.Password)
-        if self.settings.openai_api_key:
-            self.openai_key.setText(self.settings.openai_api_key)
+        self.openai_key.setText(
+            _load_keyring_secret("voxstream", "openai_api_key", self.settings.openai_key_str)
+        )
         form.addRow("OpenAI API Key:", self.openai_key)
 
         self.anthropic_key = QLineEdit()
         self.anthropic_key.setEchoMode(QLineEdit.EchoMode.Password)
-        if self.settings.anthropic_api_key:
-            self.anthropic_key.setText(self.settings.anthropic_api_key)
+        self.anthropic_key.setText(
+            _load_keyring_secret("voxstream", "anthropic_api_key", self.settings.anthropic_key_str)
+        )
         form.addRow("Anthropic API Key:", self.anthropic_key)
+
+        self.deepl_key = QLineEdit()
+        self.deepl_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.deepl_key.setText(
+            _load_keyring_secret("voxstream", "deepl_api_key", self.settings.deepl_key_str)
+        )
+        form.addRow("DeepL API Key:", self.deepl_key)
+
+        self.elevenlabs_key = QLineEdit()
+        self.elevenlabs_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.elevenlabs_key.setText(
+            _load_keyring_secret(
+                "voxstream", "elevenlabs_api_key", self.settings.elevenlabs_key_str
+            )
+        )
+        form.addRow("ElevenLabs API Key:", self.elevenlabs_key)
 
         # Lookahead & Audio Tuning
         self.lookahead_spin = QDoubleSpinBox()
@@ -94,3 +141,15 @@ class SettingsDialog(QDialog if HAS_QT else object):  # type: ignore[misc]
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if HAS_QT:
+            _save_keyring_secret("voxstream", "openai_api_key", self.openai_key.text().strip())
+            _save_keyring_secret(
+                "voxstream", "anthropic_api_key", self.anthropic_key.text().strip()
+            )
+            _save_keyring_secret("voxstream", "deepl_api_key", self.deepl_key.text().strip())
+            _save_keyring_secret(
+                "voxstream", "elevenlabs_api_key", self.elevenlabs_key.text().strip()
+            )
+            super().accept()

@@ -62,9 +62,9 @@ All speech and language models sit behind abstract Python protocols. You can run
 
 | Stage | Default / Local | Cloud / Alternatives |
 |---|---|---|
-| **STT (Transcription)** | `faster-whisper` (CPU int8 / CUDA) | OpenAI Whisper API, Groq |
+| **STT (Transcription)** | `faster-whisper` (CPU int8 / CUDA) | OpenAI Whisper API (`openai_compat_stt`), Groq |
 | **Translation** | Ollama / LM Studio (OpenAI-compatible) | OpenAI (`gpt-4o-mini`), Anthropic Claude, DeepL |
-| **TTS (Speech Synth)** | `edge-tts` (zero-config, high quality) | ElevenLabs, OpenAI TTS, local Piper |
+| **TTS (Speech Synth)** | `edge` (online Microsoft endpoint, zero-config) | Local Piper (offline CPU), ElevenLabs, OpenAI TTS |
 | **Player & Subtitles** | `libmpv` via `python-mpv` | OSD ASS overlay with word wrapping |
 | **Dub Mixer** | `sounddevice` (PortAudio callback) | Dynamic volume ducking (-14 dB default) |
 
@@ -189,11 +189,14 @@ VOXSTREAM_WHISPER_MODEL=base
 # Translation: Point to a local Ollama or LM Studio instance
 VOXSTREAM_TRANSLATE_PROVIDER=openai_compat
 VOXSTREAM_OPENAI_BASE_URL=http://localhost:11434/v1
-VOXSTREAM_OPENAI_MODEL=llama3.2
+VOXSTREAM_TRANSLATE_MODEL=llama3.2
 
-# TTS: Local neural voices using Piper or Edge-TTS
+# TTS: Local neural voices using Piper (runs offline on CPU via ONNX)
 VOXSTREAM_TTS_PROVIDER=piper
 ```
+
+> [!IMPORTANT]
+> **Edge TTS is NOT local/air-gapped.** While `edge` requires no API key, it sends text to Microsoft Edge cloud endpoints to synthesize audio. For strict offline air-gapped operation, configure `VOXSTREAM_TTS_PROVIDER=piper` with local ONNX voice models.
 
 ### Cloud Profile (OpenAI / Anthropic / DeepL / ElevenLabs)
 
@@ -239,30 +242,35 @@ Set `VOXSTREAM_MAX_COST_USD` in your `.env` to prevent unexpected cloud bills:
 VOXSTREAM_MAX_COST_USD=2.50
 ```
 
-When a run finishes, a clear cost breakdown table is printed to your console.
+When a run finishes, a clear cost breakdown table is printed to your console. If projected expenditure exceeds the ceiling during execution, processing halts immediately with a `BudgetExceededError`.
 
 ---
 
-## Privacy & Data Handling
+## Privacy & Security Controls
 
 | Provider | What leaves your machine? | Destination |
 |---|---|---|
 | `faster_whisper` | Nothing (runs on local CPU/GPU) | Localhost |
 | `piper` | Nothing (runs on local CPU) | Localhost |
-| `openai_compat` (Ollama) | Nothing | Localhost |
-| `openai_compat` (Cloud) | Audio chunks (STT) or text snippets | OpenAI API |
+| `openai_compat` (Ollama / LM Studio) | Nothing | Localhost |
+| `openai_compat_stt` (Cloud Whisper) | Audio chunks for transcription | OpenAI API |
+| `openai_compat` (Cloud LLM) | Text snippets for translation | OpenAI API |
 | `anthropic` | Text snippets for translation | Anthropic API |
 | `deepl` | Text snippets for translation | DeepL API |
 | `edge` | Text snippets for voice synthesis | Microsoft Edge TTS endpoints |
 | `elevenlabs` | Text snippets for voice synthesis | ElevenLabs API |
 
-> [!NOTE]
-> VoxStream never logs API keys. All credentials are redacted from console output, file logs, and error traces.
+### Security Measures
+- **Credential Protection:** API keys are stored as `SecretStr` instances, preventing accidental disclosure in tracebacks or object representations. Secret redaction sanitizes bearer tokens, API keys, and HTTP 5xx error text in logs.
+- **Environment Isolation:** `.env` files are not loaded blindly from arbitrary working directories. Loading is restricted to an explicit `VOXSTREAM_ENV_FILE`, `~/.config/voxstream/.env`, or the repository root containing a `.git` directory.
+- **Untrusted Media Handling:** Subprocess invocations of `ffmpeg` and `ffprobe` enforce strict protocol whitelists (`-protocol_whitelist "file,http,https,tcp,tls,crypto"`), option delimiters (`--`), and prefix escaping for filenames starting with dashes.
+- **Path Traversal Defenses:** Cache clearing operations validate media IDs against `^[0-9a-f]{32}$` and verify strict filesystem containment within the designated cache directory.
 
 ---
 
 ## Known Limitations
 
+- **Live Dubbing Sync:** While live subtitle overlay runs smoothly with `mpv`, live dubbing audio mixing with dynamic ducking is experimental and can experience audio drift under high CPU load. For production-quality dubbed media files, batch processing via `voxstream process --mode dub --mux` is recommended.
 - **Speed Changes:** When video playback speed is set to anything other than `1.0x` during live dubbing, dub audio is temporarily muted and original audio plays at the selected speed. Subtitles remain active. Returning to `1.0x` automatically resumes dubbing.
 - **CPU Performance on Local STT:** Running `faster-whisper` large models on low-end dual-core CPUs may result in real-time factors > 1.0, causing the lookahead buffer to underrun. On machines without a discrete GPU, use `tiny` or `base` models, or use a cloud STT provider.
 - **libmpv Embedding:** Embedded GUI rendering requires `libmpv` dynamic libraries (`libmpv.so.2` on Linux, `libmpv.dylib` on macOS, `mpv-2.dll` on Windows). If not found, run `voxstream doctor` for installation instructions.

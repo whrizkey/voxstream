@@ -1,5 +1,6 @@
 """Real-time PortAudio dub mixer with master clock slaved to mpv time-pos."""
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -37,34 +38,48 @@ class DubMixer:
         self.speed = 1.0
         self.clips: list[DubClip] = []
         self._clip_audio_cache: dict[str, np.ndarray] = {}
+        self._lock = threading.Lock()
 
         self.reanchor_count = 0
         self.last_drift = 0.0
         self._is_ducking = False
         self._stream: Any = None
 
-    def add_clips(self, new_clips: list[DubClip]) -> None:
-        """Add synthesized dub clips to mixer store."""
-        for c in new_clips:
-            self.clips.append(c)
-        self.clips.sort(key=lambda c: c.start)
-
-    def _get_clip_samples(self, clip: DubClip) -> np.ndarray:
+    def _preload_clip(self, clip: DubClip) -> np.ndarray:
+        """Decode and resample audio into memory in worker thread (never in audio callback)."""
         if clip.seg_id in self._clip_audio_cache:
             return self._clip_audio_cache[clip.seg_id]
 
         if not clip.audio_path.exists():
             return np.zeros(0, dtype=np.float32)
 
-        data, _ = sf.read(str(clip.audio_path))
+        data, sr = sf.read(str(clip.audio_path))
         if data.ndim > 1:
             data = np.mean(data, axis=1)
 
-        # Convert to float32
         arr_data: np.ndarray = np.asarray(data, dtype=np.float32)
-        # Cache decoded array
+
+        # Resample to mixer sample rate if different (e.g. Piper 22050 Hz -> 24000 Hz)
+        if sr != self.sample_rate and len(arr_data) > 0:
+            target_len = round(len(arr_data) * float(self.sample_rate) / float(sr))
+            indices = np.linspace(0, len(arr_data) - 1, target_len)
+            arr_data = np.interp(indices, np.arange(len(arr_data)), arr_data).astype(np.float32)
+
         self._clip_audio_cache[clip.seg_id] = arr_data
         return arr_data
+
+    def add_clips(self, new_clips: list[DubClip]) -> None:
+        """Add synthesized dub clips to mixer store after pre-decoding."""
+        for c in new_clips:
+            self._preload_clip(c)
+        with self._lock:
+            self.clips.extend(new_clips)
+            self.clips.sort(key=lambda c: c.start)
+
+    def _get_clip_samples(self, clip: DubClip) -> np.ndarray:
+        if clip.seg_id in self._clip_audio_cache:
+            return self._clip_audio_cache[clip.seg_id]
+        return self._preload_clip(clip)
 
     def update_anchor(self, player_media_pos: float, speed: float = 1.0) -> None:
         """Update clock anchor from player time-pos notification and correct drift."""
@@ -128,28 +143,30 @@ class DubMixer:
 
         active_dub_in_buffer = False
 
-        # Find overlapping clips
-        for clip in self.clips:
-            clip_start = clip.start
-            clip_end = clip_start + clip.duration
+        # Find overlapping clips using thread-safe snapshot
+        with self._lock:
+            overlapping_clips = [
+                c
+                for c in self.clips
+                if not (c.start + c.duration <= media_start or c.start >= media_end)
+            ]
 
-            if clip_end <= media_start or clip_start >= media_end:
-                continue
-
+        for clip in overlapping_clips:
             active_dub_in_buffer = True
-            clip_samples = self._get_clip_samples(clip)
+            clip_samples = self._clip_audio_cache.get(clip.seg_id)
+            if clip_samples is None:
+                clip_samples = self._get_clip_samples(clip)
+
             if len(clip_samples) == 0:
                 continue
 
             # Calculate slice bounds within buffer
-            # Sample offset in clip corresponding to media_start
-            clip_sample_offset = round((media_start - clip_start) * self.sample_rate)
+            clip_sample_offset = round((media_start - clip.start) * self.sample_rate)
 
             buf_start_idx = 0
             clip_start_idx = clip_sample_offset
 
             if clip_sample_offset < 0:
-                # Clip begins after media_start
                 buf_start_idx = -clip_sample_offset
                 clip_start_idx = 0
 
@@ -168,6 +185,8 @@ class DubMixer:
 
     def start_stream(self) -> None:
         """Initialize PortAudio output stream if sounddevice is available."""
+        if self._stream is not None:
+            return
         try:
             import sounddevice as sd
 

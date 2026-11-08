@@ -44,9 +44,9 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
                 is_usable=has_mod,
                 reason=None if has_mod else "faster-whisper package not installed",
             )
-        elif name == "openai_compat":
+        elif name in ("openai_compat", "openai_compat_stt"):
             has_key = bool(
-                settings.openai_api_key
+                settings.openai_key_str
                 or "localhost" in settings.openai_base_url
                 or "127.0.0.1" in settings.openai_base_url
             )
@@ -59,7 +59,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
     elif kind == "translate":
         if name == "openai_compat":
             has_key = bool(
-                settings.openai_api_key
+                settings.openai_key_str
                 or "localhost" in settings.openai_base_url
                 or "127.0.0.1" in settings.openai_base_url
             )
@@ -70,7 +70,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
                 reason=None if has_key else "OPENAI_API_KEY not configured",
             )
         elif name == "anthropic":
-            has_key = bool(settings.anthropic_api_key)
+            has_key = bool(settings.anthropic_key_str)
             return ProviderStatus(
                 name=name,
                 kind=kind,
@@ -78,7 +78,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
                 reason=None if has_key else "ANTHROPIC_API_KEY not configured",
             )
         elif name == "deepl":
-            has_key = bool(settings.deepl_api_key)
+            has_key = bool(settings.deepl_key_str)
             return ProviderStatus(
                 name=name,
                 kind=kind,
@@ -95,7 +95,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
                 reason=None if has_mod else "edge-tts package not installed",
             )
         elif name == "openai":
-            has_key = bool(settings.openai_api_key)
+            has_key = bool(settings.openai_key_str)
             return ProviderStatus(
                 name=name,
                 kind=kind,
@@ -103,7 +103,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
                 reason=None if has_key else "OPENAI_API_KEY not configured",
             )
         elif name == "elevenlabs":
-            has_key = bool(settings.elevenlabs_api_key)
+            has_key = bool(settings.elevenlabs_key_str)
             return ProviderStatus(
                 name=name,
                 kind=kind,
@@ -134,6 +134,8 @@ def available_providers(kind: Literal["stt", "translate", "tts"]) -> list[Provid
 def get_stt_provider(name: str | None = None) -> SttProvider:
     settings = get_settings()
     provider_name = name or settings.stt_provider
+    if provider_name == "openai_compat_stt":
+        provider_name = "openai_compat"
 
     if provider_name == "fake":
         return FakeSttProvider()
@@ -141,7 +143,7 @@ def get_stt_provider(name: str | None = None) -> SttProvider:
         return FasterWhisperSttProvider(model_size=settings.stt_model)
     elif provider_name == "openai_compat":
         return OpenAiCompatSttProvider(
-            api_key=settings.openai_api_key,
+            api_key=settings.openai_key_str,
             base_url=settings.openai_base_url,
             model=settings.stt_model,
         )
@@ -157,17 +159,17 @@ def get_translate_provider(name: str | None = None) -> TranslateProvider:
         return FakeTranslateProvider()
     elif provider_name == "openai_compat":
         return OpenAiCompatTranslateProvider(
-            api_key=settings.openai_api_key,
+            api_key=settings.openai_key_str,
             base_url=settings.openai_base_url,
             model=settings.translate_model,
         )
     elif provider_name == "anthropic":
         return AnthropicTranslateProvider(
-            api_key=settings.anthropic_api_key,
+            api_key=settings.anthropic_key_str,
         )
     elif provider_name == "deepl":
         return DeepLTranslateProvider(
-            api_key=settings.deepl_api_key,
+            api_key=settings.deepl_key_str,
         )
     else:
         raise ConfigurationError(f"Unsupported translation provider: {provider_name}")
@@ -183,12 +185,12 @@ def get_tts_provider(name: str | None = None) -> TtsProvider:
         return EdgeTtsProvider()
     elif provider_name == "openai":
         return OpenAiTtsProvider(
-            api_key=settings.openai_api_key,
+            api_key=settings.openai_key_str,
             base_url=settings.openai_base_url,
         )
     elif provider_name == "elevenlabs":
         return ElevenLabsTtsProvider(
-            api_key=settings.elevenlabs_api_key,
+            api_key=settings.elevenlabs_key_str,
         )
     elif provider_name == "piper":
         return PiperTtsProvider()

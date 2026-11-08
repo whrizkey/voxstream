@@ -5,6 +5,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from voxstream.errors import BudgetExceededError
+
 
 @dataclass
 class UsageItem:
@@ -58,16 +60,35 @@ def load_pricing_rates(custom_file: Path | None = None) -> dict[str, float]:
 class UsageTracker:
     """Accumulates provider usage across a processing session and estimates cost."""
 
-    def __init__(self, rates: dict[str, float] | None = None) -> None:
+    def __init__(
+        self,
+        rates: dict[str, float] | None = None,
+        max_cost_usd: float | None = None,
+    ) -> None:
         self.records: list[UsageItem] = []
         self.rates = rates if rates is not None else load_pricing_rates()
+        self.max_cost_usd = max_cost_usd
+
+    def check_budget(self, prospective_cost: float = 0.0) -> None:
+        """Check if prospective expenditure exceeds the max_cost_usd ceiling."""
+        if self.max_cost_usd is not None:
+            current = self.estimate_cost_usd()
+            projected = current + prospective_cost
+            if projected > self.max_cost_usd:
+                raise BudgetExceededError(
+                    f"Cost ceiling exceeded: projected ${projected:.4f} > limit ${self.max_cost_usd:.2f} (VOXSTREAM_MAX_COST_USD)"
+                )
 
     def record_stt(self, provider: str, audio_seconds: float) -> None:
+        rate = self.rates.get(provider, 0.0)
+        self.check_budget(audio_seconds * rate)
         self.records.append(
             UsageItem(provider=provider, kind="stt", quantity=audio_seconds, unit="seconds")
         )
 
     def record_translation(self, provider: str, char_count: int) -> None:
+        rate = self.rates.get(provider, 0.0)
+        self.check_budget(float(char_count) * rate)
         self.records.append(
             UsageItem(
                 provider=provider, kind="translate", quantity=float(char_count), unit="characters"
@@ -75,6 +96,8 @@ class UsageTracker:
         )
 
     def record_tts(self, provider: str, char_count: int) -> None:
+        rate = self.rates.get(provider, 0.0)
+        self.check_budget(float(char_count) * rate)
         self.records.append(
             UsageItem(provider=provider, kind="tts", quantity=float(char_count), unit="characters")
         )

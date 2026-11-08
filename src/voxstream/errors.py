@@ -28,3 +28,7 @@ class PipelineError(VoxStreamError):
 
 class ExternalToolError(VoxStreamError):
     """Raised when an external tool (ffmpeg, ffprobe, demucs, yt-dlp) fails or is missing."""
+
+
+class BudgetExceededError(VoxStreamError):
+    """Raised when estimated usage exceeds the configured max_cost_usd ceiling."""

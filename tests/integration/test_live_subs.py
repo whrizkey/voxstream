@@ -95,3 +95,28 @@ async def test_live_underrun_pauses_and_resumes(long_sample_wav: Path) -> None:
         # Once ready, buffering clears and player resumes automatically
         assert controller.is_buffering is False
         assert player.is_paused() is False
+
+
+@pytest.mark.asyncio
+async def test_manual_pause_prevents_buffering_autoresume(long_sample_wav: Path) -> None:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        cache_dir = Path(tmp_dir) / "cache"
+        player = VirtualPlayer(duration=120.0)
+        player.play()
+
+        controller = PlaybackController(
+            media_path=long_sample_wav,
+            target_lang="es",
+            player=player,
+            stt_provider=FakeSttProvider(),
+            translate_provider=FakeTranslateProvider(),
+            cache_dir=cache_dir,
+        )
+
+        controller.seek(95.0)
+        assert controller.is_buffering is True
+        controller.pause()
+
+        await controller.step()
+        assert controller.is_buffering is False
+        assert player.is_paused() is True

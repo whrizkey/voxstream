@@ -62,3 +62,35 @@ def test_mixer_speed_limitation_mutes_dub() -> None:
         mixer.set_speed(1.0)
         buf_restored = mixer.mix_buffer(1024)
         assert np.any(buf_restored > 0)
+
+
+def test_mixer_resampling_piper_rate() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        clip_path = Path(tmp_dir) / "piper_clip.wav"
+        # Piper native rate is 22050 Hz
+        piper_sr = 22050
+        duration = 1.0
+        data = np.ones(int(piper_sr * duration), dtype=np.float32)
+        sf.write(str(clip_path), data, piper_sr)
+
+        clip = DubClip(
+            seg_id="piper_c1",
+            start=0.0,
+            audio_path=clip_path,
+            duration=duration,
+            speed_factor=1.0,
+            overflow=0.0,
+        )
+        # Mixer rate is 24000 Hz
+        mixer = DubMixer(sample_rate=24000)
+        mixer.add_clips([clip])
+
+        samples = mixer._get_clip_samples(clip)
+        # 1.0s of audio resampled to 24000 Hz should have ~24000 samples
+        assert abs(len(samples) - 24000) <= 2
+
+        mixer.resume()
+        mixer.update_anchor(0.0)
+        buf = mixer.mix_buffer(1024)
+        assert len(buf) == 1024
+        assert np.any(buf > 0)

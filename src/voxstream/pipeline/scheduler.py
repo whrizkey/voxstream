@@ -1,8 +1,10 @@
 """Look-ahead pipeline orchestrator with generation tracking and underrun handling."""
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
+from voxstream.config import get_settings
 from voxstream.models import ChunkSpec, ChunkState, TranslatedSegment
 from voxstream.pipeline.cache import (
     CacheManager,
@@ -11,6 +13,7 @@ from voxstream.pipeline.cache import (
 )
 from voxstream.pipeline.transcribe import transcribe_chunk
 from voxstream.pipeline.translate import translate_segments
+from voxstream.providers.accounting import UsageTracker
 from voxstream.providers.base import SttProvider, TranslateProvider
 
 
@@ -22,7 +25,7 @@ class LookaheadScheduler:
         playhead_fn: Callable[[], float],
         chunks: list[ChunkSpec],
         media_id: str,
-        media_path: Path,
+        media_path: Path | str,
         cache: CacheManager,
         stt_provider: SttProvider,
         translate_provider: TranslateProvider,
@@ -32,6 +35,7 @@ class LookaheadScheduler:
         lookahead_seconds: float = 120.0,
         initial_buffer_seconds: float = 20.0,
         pause_on_underrun: bool = True,
+        usage_tracker: UsageTracker | None = None,
     ) -> None:
         self.playhead_fn = playhead_fn
         self.chunks = chunks
@@ -45,6 +49,8 @@ class LookaheadScheduler:
         self.lookahead_seconds = lookahead_seconds
         self.initial_buffer_seconds = initial_buffer_seconds
         self.pause_on_underrun = pause_on_underrun
+        self.usage_tracker = usage_tracker
+        self.settings = get_settings()
 
         self.generation: int = 0
         self.chunk_states: dict[int, ChunkState] = {c.index: ChunkState.PENDING for c in chunks}
@@ -91,9 +97,16 @@ class LookaheadScheduler:
 
     async def process_single_chunk(self, chunk: ChunkSpec, task_gen: int) -> None:
         """Process a single chunk with generation validation and cache inspection."""
-        stt_key = make_stt_key(self.stt_provider.name, "small", self.source_lang, "30:2")
+        chunk_params = f"{chunk.extraction_duration}:{chunk.pad_before}"
+        stt_key = make_stt_key(
+            self.stt_provider.name, self.settings.stt_model, self.source_lang, chunk_params
+        )
         trans_key = make_translate_key(
-            self.translate_provider.name, "model", self.target_lang, "v1", False
+            self.translate_provider.name,
+            self.settings.translate_model,
+            self.target_lang,
+            prompt_version="v1",
+            max_chars_mode=False,
         )
 
         media_dir = self.cache.get_media_dir(self.media_id)
@@ -106,12 +119,15 @@ class LookaheadScheduler:
         if segments is None:
             from voxstream.media.extract import extract_audio_chunk
 
-            extract_audio_chunk(
+            await asyncio.to_thread(
+                extract_audio_chunk,
                 self.media_path,
                 chunk_wav,
                 start_seconds=chunk.extraction_start,
                 duration_seconds=chunk.extraction_duration,
             )
+            if self.usage_tracker is not None:
+                self.usage_tracker.record_stt(self.stt_provider.name, chunk.extraction_duration)
             segments = await transcribe_chunk(
                 self.stt_provider,
                 chunk_wav,
@@ -132,6 +148,9 @@ class LookaheadScheduler:
             self.media_id, chunk.index, trans_key, self.target_lang
         )
         if translations is None:
+            if self.usage_tracker is not None:
+                char_count = sum(len(s.text) for s in segments)
+                self.usage_tracker.record_translation(self.translate_provider.name, char_count)
             translations = await translate_segments(
                 self.translate_provider,
                 segments,
@@ -175,7 +194,9 @@ class LookaheadScheduler:
         window_chunks.sort(key=lambda c: abs(c.start - pos))
 
         for chunk in window_chunks:
-            if self.chunk_states[chunk.index] == ChunkState.PENDING:
+            # Re-schedule any chunk in the lookahead window that is not yet READY
+            # (handles PENDING as well as interrupted TRANSCRIBED chunks after a seek)
+            if self.chunk_states[chunk.index] != ChunkState.READY:
                 curr_gen = self.generation
                 await self.process_single_chunk(chunk, curr_gen)
                 break  # Process sequentially or with backpressure

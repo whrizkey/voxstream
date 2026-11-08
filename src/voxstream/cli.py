@@ -109,25 +109,70 @@ def play(
     ] = None,
 ) -> None:
     """Stream media with live translated subtitles and/or dubbed audio."""
+    from voxstream.media.stream import is_stream_url
     from voxstream.playback.controller import PlaybackController
+    from voxstream.playback.player import MpvPlayer, Player, VirtualPlayer
 
-    target_path = Path(target)
-    if not target_path.exists():
-        console.print(f"[bold red]Error:[/bold red] File not found: {target}")
-        raise typer.Exit(code=4)
+    media_target: Path | str
+    if is_stream_url(target):
+        media_target = target
+    else:
+        target_path = Path(target)
+        if not target_path.exists():
+            console.print(f"[bold red]Error:[/bold red] File not found: {target}")
+            raise typer.Exit(code=4)
+        media_target = target_path
 
-    controller = PlaybackController(target_path, to, source_lang=source_lang)
-    console.print(f"\n[bold cyan]Starting Live Playback[/bold cyan] ({target_path.name} -> {to})")
+    # Attempt to load MpvPlayer, falling back to VirtualPlayer if libmpv is unavailable
+    player: Player
+    try:
+        mpv_inst = MpvPlayer()
+        if mpv_inst._mpv is not None:
+            player = mpv_inst
+        else:
+            player = VirtualPlayer()
+    except Exception:
+        player = VirtualPlayer()
+
+    controller = PlaybackController(
+        media_target,
+        to,
+        mode=mode,
+        source_lang=source_lang,
+        player=player,
+    )
+    console.print(f"\n[bold cyan]Starting Live Playback[/bold cyan] ({target} -> {to})")
     console.print(f" • Mode: {mode} | Duration: {controller.probe.duration:.2f}s")
     console.print(" • Press Ctrl+C to exit.\n")
 
     async def _live_loop() -> None:
-        # Pre-buffer initial chunks
         await controller.step()
-        controller.player.play()
-        console.print("[green]Playback started.[/green]")
+        controller.play()
+        console.print("[green]Playback started.[/green]\n")
 
-    asyncio.run(_live_loop())
+        last_cue_text = ""
+        try:
+            while controller.player.get_time_pos() < controller.probe.duration:
+                await controller.step()
+                if mode in ("subs", "both"):
+                    active_cue = controller.get_active_subtitle()
+                    if active_cue and active_cue.text != last_cue_text:
+                        last_cue_text = active_cue.text
+                        pos_str = f"[{active_cue.start:.1f}s - {active_cue.end:.1f}s]"
+                        console.print(
+                            f"[dim]{pos_str}[/dim] [bold yellow]{active_cue.text}[/bold yellow]"
+                        )
+                await asyncio.sleep(0.1)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass
+        finally:
+            controller.close()
+            console.print("\n[dim]Playback ended.[/dim]")
+
+    try:
+        asyncio.run(_live_loop())
+    except KeyboardInterrupt:
+        controller.close()
 
 
 @app.command()
@@ -176,6 +221,7 @@ def process(
                 mode=mode,
                 source_lang=source_lang,
                 dual_subtitles=dual,
+                mux=mux,
                 progress_callback=on_chunk_progress,
             )
         )
@@ -187,7 +233,13 @@ def process(
         f" • Chunks Processed: {stats['total_chunks']} ({stats['cache_hits']} cache hits)"
     )
     console.print(f" • Subtitle Cues: {stats['total_segments']}")
-    console.print(f" • Subtitle Output: [cyan]{stats['srt_path']}[/cyan]\n")
+    console.print(f" • Subtitle Output: [cyan]{stats['srt_path']}[/cyan]")
+    if stats.get("dub_wav_path"):
+        console.print(f" • Dub Track: [cyan]{stats['dub_wav_path']}[/cyan]")
+    if stats.get("muxed_path"):
+        console.print(f" • Muxed Output: [cyan]{stats['muxed_path']}[/cyan]")
+    if "cost_usd" in stats:
+        console.print(f" • Estimated Cost: [green]${stats['cost_usd']:.4f} USD[/green]\n")
 
 
 @app.command("export-srt")
@@ -244,7 +296,12 @@ def cache_clear(
     """Clear cached transcripts, translations, and temporary audio files."""
     settings = get_settings()
     mgr = CacheManager(settings.get_cache_path())
-    mgr.clear(media_id)
+    try:
+        mgr.clear(media_id)
+    except ValueError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
     if media_id:
         console.print(f"[green]Cleared cache for media ID:[/green] {media_id}")
     else:
@@ -258,4 +315,10 @@ def cache_prune(
     ] = 5.0,
 ) -> None:
     """Prune cache entries older than threshold."""
-    console.print(f"[dim]Pruning cache down to {max_gb} GB...[/dim]")
+    settings = get_settings()
+    mgr = CacheManager(settings.get_cache_path())
+    max_bytes = int(max_gb * 1024 * 1024 * 1024)
+    removed = mgr.prune(max_bytes)
+    console.print(
+        f"[green]Pruned cache down to {max_gb:.1f} GB ({removed} media items removed).[/green]"
+    )

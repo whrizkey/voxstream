@@ -1,18 +1,21 @@
-"""Playback controller coordinating player engine, lookahead scheduler, subtitles, and dub mixer."""
+"""Playback coordinator managing video player, rolling lookahead scheduler, and audio mixer."""
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
 from voxstream.config import get_settings
+from voxstream.errors import ConfigurationError
 from voxstream.media.fingerprint import calculate_fingerprint
 from voxstream.media.probe import probe_media
 from voxstream.models import DubClip, TranslatedSegment
 from voxstream.pipeline.cache import CacheManager
-from voxstream.pipeline.chunker import plan_chunks
+from voxstream.pipeline.chunker import create_silence_finder, plan_chunks
 from voxstream.pipeline.scheduler import LookaheadScheduler
 from voxstream.playback.mixer import DubMixer
 from voxstream.playback.player import Player, VirtualPlayer
 from voxstream.playback.subtitles import Cue, SubtitleStore
+from voxstream.providers.accounting import UsageTracker
 from voxstream.providers.base import SttProvider, TranslateProvider, TtsProvider
 from voxstream.providers.registry import (
     check_provider_usable,
@@ -23,11 +26,11 @@ from voxstream.providers.registry import (
 
 
 class PlaybackController:
-    """Coordinates video player, lookahead scheduler, subtitle store, and dub mixer."""
+    """Coordinates video playback, subtitle overlay, and audio dubbing in real time."""
 
     def __init__(
         self,
-        media_path: Path,
+        media_path: Path | str,
         target_lang: str,
         *,
         mode: str = "subs",
@@ -51,6 +54,9 @@ class PlaybackController:
         # 2. Player
         self.player = player or VirtualPlayer(duration=self.probe.duration)
         self.player.load(media_path)
+        self._user_paused: bool = False
+        self._normal_volume: float = self.player.get_volume()
+        self._is_ducked: bool = False
 
         # 3. Cache & Providers
         self.cache = CacheManager(cache_dir or self.settings.get_cache_path())
@@ -58,41 +64,52 @@ class PlaybackController:
 
         if stt_provider is None:
             status = check_provider_usable("stt", self.settings.stt_provider)
-            self.stt_provider = get_stt_provider(
-                self.settings.stt_provider if status.is_usable else "fake"
-            )
+            if not status.is_usable and self.settings.stt_provider != "fake":
+                raise ConfigurationError(
+                    f"STT provider '{self.settings.stt_provider}' is not usable: {status.reason}"
+                )
+            self.stt_provider = get_stt_provider(self.settings.stt_provider)
         else:
             self.stt_provider = stt_provider
 
         if translate_provider is None:
             t_status = check_provider_usable("translate", self.settings.translate_provider)
-            self.translate_provider = get_translate_provider(
-                self.settings.translate_provider if t_status.is_usable else "fake"
-            )
+            if not t_status.is_usable and self.settings.translate_provider != "fake":
+                raise ConfigurationError(
+                    f"Translation provider '{self.settings.translate_provider}' is not usable: {t_status.reason}"
+                )
+            self.translate_provider = get_translate_provider(self.settings.translate_provider)
         else:
             self.translate_provider = translate_provider
 
         self.tts_provider: TtsProvider | None = None
         if tts_provider is None and self.mode in ("dub", "both"):
             tts_status = check_provider_usable("tts", self.settings.tts_provider)
-            self.tts_provider = get_tts_provider(
-                self.settings.tts_provider if tts_status.is_usable else "fake"
-            )
+            if not tts_status.is_usable and self.settings.tts_provider != "fake":
+                raise ConfigurationError(
+                    f"TTS provider '{self.settings.tts_provider}' is not usable: {tts_status.reason}"
+                )
+            self.tts_provider = get_tts_provider(self.settings.tts_provider)
         else:
             self.tts_provider = tts_provider
 
-        # 4. Subtitle Store & Dub Mixer
+        # 4. Usage accounting & budget ceiling
+        self.usage_tracker = UsageTracker(max_cost_usd=self.settings.max_cost_usd)
+
+        # 5. Subtitle Store & Dub Mixer
         self.subtitles = SubtitleStore()
         self.mixer = DubMixer(
             sample_rate=24000,
             duck_db=self.settings.duck_db,
         )
 
-        # 5. Chunks & Scheduler
+        # 6. Chunks & Scheduler with silence snapping
+        silence_finder = create_silence_finder(self.media_path)
         self.chunks = plan_chunks(
             total_duration=self.probe.duration,
             chunk_seconds=self.settings.chunk_seconds,
             overlap_seconds=self.settings.chunk_overlap_seconds,
+            silence_finder=silence_finder,
         )
 
         self.scheduler = LookaheadScheduler(
@@ -108,6 +125,7 @@ class PlaybackController:
             lookahead_seconds=self.settings.lookahead_seconds,
             initial_buffer_seconds=self.settings.initial_buffer_seconds,
             pause_on_underrun=self.settings.pause_on_underrun,
+            usage_tracker=self.usage_tracker,
         )
 
         # Wire callbacks
@@ -141,7 +159,6 @@ class PlaybackController:
 
         # 2. If dubbing mode, schedule synthesis in background
         if self.mode in ("dub", "both") and self.tts_provider is not None:
-            import asyncio
 
             async def _synthesize_clips() -> None:
                 from voxstream.pipeline.synthesize import synthesize_and_fit_segment
@@ -154,6 +171,7 @@ class PlaybackController:
                     )
                     if self.tts_provider is None:
                         continue
+                    self.usage_tracker.record_tts(self.tts_provider.name, len(trans_seg.text))
                     clip = await synthesize_and_fit_segment(
                         trans_seg,
                         next_start,
@@ -166,7 +184,6 @@ class PlaybackController:
                     clips.append(clip)
                 self.mixer.add_clips(clips)
 
-            # Schedule or run synchronously
             try:
                 loop = asyncio.get_running_loop()
                 task = loop.create_task(_synthesize_clips())
@@ -181,12 +198,28 @@ class PlaybackController:
             self.player.pause()
             self.mixer.pause()
         elif not buffering and self.settings.pause_on_underrun:
-            self.player.play()
-            self.mixer.resume()
+            if not self._user_paused:
+                self.player.play()
+                self.mixer.resume()
+
+    def _apply_ducking(self) -> None:
+        """Apply audio ducking to the video player if dubbing is currently active."""
+        if self.mode not in ("dub", "both"):
+            return
+
+        is_ducking = self.mixer.is_ducking_active()
+        if is_ducking and not self._is_ducked:
+            duck_factor = 10.0 ** (self.settings.duck_db / 20.0)
+            self.player.set_volume(self._normal_volume * duck_factor)
+            self._is_ducked = True
+        elif not is_ducking and self._is_ducked:
+            self.player.set_volume(self._normal_volume)
+            self._is_ducked = False
 
     async def step(self) -> None:
-        """Advance scheduler lookahead cycle."""
+        """Advance scheduler lookahead cycle and update audio ducking."""
         await self.scheduler.step()
+        self._apply_ducking()
 
     def get_active_subtitle(self) -> Cue | None:
         """Get the subtitle cue corresponding to the current player time position."""
@@ -197,9 +230,18 @@ class PlaybackController:
         self.player.seek(target_pos)
 
     def play(self) -> None:
+        self._user_paused = False
+        if self.mode in ("dub", "both"):
+            self.mixer.start_stream()
+            self.mixer.resume()
         self.player.play()
-        self.mixer.resume()
 
     def pause(self) -> None:
+        self._user_paused = True
         self.player.pause()
         self.mixer.pause()
+
+    def close(self) -> None:
+        """Stop mixer output and cleanly release resources."""
+        self.mixer.stop_stream()
+        self.player.pause()

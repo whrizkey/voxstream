@@ -92,7 +92,7 @@ class OpenAiCompatTranslateProvider:
 
         if resp.status_code >= 500:
             raise ProviderError(
-                f"Server error HTTP {resp.status_code}: {resp.text}",
+                redact_secrets(f"Server error HTTP {resp.status_code}: {resp.text}"),
                 provider=self.name,
                 retryable=True,
             )

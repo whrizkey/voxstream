@@ -103,11 +103,27 @@ class TtsProvider(Protocol):
         ...
 
 
-# Secret redaction patterns (e.g. sk-..., key-..., bearer tokens)
+# Secret redaction patterns (e.g. sk-..., key-..., bearer tokens, DeepL, Anthropic, ElevenLabs)
 _SECRET_PATTERNS = [
-    re.compile(r"sk-[a-zA-Z0-9_-]{20,}"),
-    re.compile(r"(Bearer\s+)[a-zA-Z0-9_\-\.]{20,}", re.IGNORECASE),
-    re.compile(r"(api[_-]?key\s*[:=]\s*['\"]?)[a-zA-Z0-9_\-]{16,}(['\"]?)", re.IGNORECASE),
+    re.compile(r"sk-[a-zA-Z0-9_-]{15,}"),
+    re.compile(r"sk-ant-[a-zA-Z0-9_\-\.]{15,}"),
+    re.compile(r"(Bearer\s+)[a-zA-Z0-9_\-\.]{10,}", re.IGNORECASE),
+    re.compile(
+        r"((?:api[_-]?key|apikey|token|secret|password)\s*[:=]\s*['\"]?)[a-zA-Z0-9_\-\.]{10,}(['\"]?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"((?:x-api-key|xi-api-key)\s*[:=]\s*['\"]?)[a-zA-Z0-9_\-\.]{10,}(['\"]?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::fx)?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"([?&](?:api[_-]?key|token|key|secret)=)[a-zA-Z0-9_\-\.]{10,}",
+        re.IGNORECASE,
+    ),
 ]
 
 

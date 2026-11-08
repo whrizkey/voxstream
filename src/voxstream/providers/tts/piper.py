@@ -1,7 +1,7 @@
 """Local Piper neural Text-to-Speech provider."""
 
+import asyncio
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -41,15 +41,17 @@ class PiperTtsProvider:
             cmd.extend(["--model", str(self.model_path)])
 
         try:
-            proc = subprocess.run(
-                cmd,
-                input=text.encode("utf-8"),
-                capture_output=True,
-                check=False,
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            _, stderr = await proc.communicate(input=text.encode("utf-8"))
             if proc.returncode != 0:
                 raise ProviderError(
-                    f"Piper error: {proc.stderr.decode('utf-8')}", provider=self.name
+                    f"Piper error: {stderr.decode('utf-8', errors='replace')}",
+                    provider=self.name,
                 )
             return out_path
         except Exception as exc:

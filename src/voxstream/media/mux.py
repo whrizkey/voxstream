@@ -21,10 +21,18 @@ def mux_media(
         raise MediaError("ffmpeg binary not found on system PATH. Install ffmpeg to mux media.")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_path.resolve() == video_path.resolve():
-        raise MediaError("Output path cannot overwrite input video file directly.")
+    video_str = str(video_path)
+    if not video_str.startswith(("http://", "https://")) and video_str.startswith("-"):
+        video_str = f"./{video_str}"
 
-    cmd = [ffmpeg_bin, "-y", "-i", str(video_path)]
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-protocol_whitelist",
+        "file,http,https,tcp,tls,crypto",
+        "-i",
+        video_str,
+    ]
 
     input_count = 1
     dub_idx: int | None = None
