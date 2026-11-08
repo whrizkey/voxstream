@@ -1,6 +1,6 @@
-"""Token, character, and audio usage accounting with estimated cost reporting."""
-
+import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -32,11 +32,35 @@ DEFAULT_RATES: dict[str, float] = {
 }
 
 
+def load_pricing_rates(custom_file: Path | None = None) -> dict[str, float]:
+    """Load rates from pricing.toml if present, falling back to DEFAULT_RATES."""
+    rates = dict(DEFAULT_RATES)
+    candidates = [
+        custom_file,
+        Path("pricing.toml"),
+        Path.home() / ".config" / "voxstream" / "pricing.toml",
+    ]
+    for p in candidates:
+        if p and p.is_file():
+            try:
+                data = tomllib.loads(p.read_text(encoding="utf-8"))
+                pricing_section = data.get("pricing", {})
+                if isinstance(pricing_section, dict):
+                    for k, v in pricing_section.items():
+                        if isinstance(v, (int, float)):
+                            rates[str(k)] = float(v)
+                break
+            except Exception:
+                pass
+    return rates
+
+
 class UsageTracker:
     """Accumulates provider usage across a processing session and estimates cost."""
 
-    def __init__(self) -> None:
+    def __init__(self, rates: dict[str, float] | None = None) -> None:
         self.records: list[UsageItem] = []
+        self.rates = rates if rates is not None else load_pricing_rates()
 
     def record_stt(self, provider: str, audio_seconds: float) -> None:
         self.records.append(
@@ -58,7 +82,7 @@ class UsageTracker:
     def estimate_cost_usd(self) -> float:
         total = 0.0
         for r in self.records:
-            rate = DEFAULT_RATES.get(r.provider, 0.0)
+            rate = self.rates.get(r.provider, 0.0)
             total += r.quantity * rate
         return total
 
@@ -74,7 +98,7 @@ class UsageTracker:
 
         total_cost = 0.0
         for r in self.records:
-            rate = DEFAULT_RATES.get(r.provider, 0.0)
+            rate = self.rates.get(r.provider, 0.0)
             cost = r.quantity * rate
             total_cost += cost
             table.add_row(

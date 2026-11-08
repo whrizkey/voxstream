@@ -1,0 +1,23 @@
+# VoxStream Estimated Provider Pricing Configuration
+# ----------------------------------------------------
+# Prices are in USD and represent estimated costs per billing unit
+# (per second for audio STT, per character for Translation and TTS).
+# Modify these values to reflect your custom provider agreements or tier discounts.
+
+[pricing]
+
+# Speech-to-Text (STT) - USD per audio second
+openai_compat_stt = 0.000100   # ~$0.006 per minute ($0.36/hr Whisper API)
+faster_whisper = 0.000000      # Free (local compute)
+
+# Translation - USD per character
+openai_compat = 0.0000006      # ~$0.60 per 1M characters
+anthropic = 0.000001           # ~$1.00 per 1M characters (Claude 3.5 Haiku)
+deepl = 0.000020               # ~$20.00 per 1M characters (DeepL API Pro)
+
+# Text-to-Speech (TTS) - USD per character
+edge = 0.000000                # Free (Microsoft Edge online service)
+openai_tts = 0.000015          # $15.00 per 1M characters (tts-1 standard)
+elevenlabs = 0.000150          # $150.00 per 1M characters (ElevenLabs standard tier)
+piper = 0.000000               # Free (local neural TTS)
+fake = 0.000000                # Free (mock testing provider)

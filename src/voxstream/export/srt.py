@@ -69,3 +69,11 @@ def export_srt(
     content = generate_srt_content(segments, dual=dual)
     output_path.write_text(content, encoding="utf-8")
     return output_path
+
+
+def export_dual_srt(
+    segments: list[TranslatedSegment],
+    output_path: Path,
+) -> Path:
+    """Export dual-language subtitles (original on top, translation below)."""
+    return export_srt(segments, output_path, dual=True)

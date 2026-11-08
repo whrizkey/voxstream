@@ -4,6 +4,7 @@ import math
 
 from voxstream.languages import get_speaking_rate
 from voxstream.models import Segment, TranslatedSegment
+from voxstream.pipeline.glossary import Glossary
 from voxstream.providers.base import TranslateItem, TranslateProvider
 
 
@@ -15,12 +16,19 @@ async def translate_segments(
     source_lang: str | None = None,
     context: list[str] | None = None,
     for_dubbing: bool = False,
+    glossary: Glossary | None = None,
+    two_pass: bool = False,
 ) -> list[TranslatedSegment]:
-    """Translate list of segments into target language with optional dubbing character budgets."""
+    """Translate list of segments into target language with optional dubbing budgets and glossary."""
     if not segments:
         return []
 
-    context_lines = context or []
+    context_lines = list(context or [])
+    if glossary:
+        hints = glossary.get_prompt_hints()
+        if hints:
+            context_lines.append(hints)
+
     rate = get_speaking_rate(target_lang)
 
     # Check for same language passthrough
@@ -30,7 +38,7 @@ async def translate_segments(
             TranslatedSegment(
                 seg=seg,
                 target_lang=target_lang,
-                text=seg.text,
+                text=glossary.apply(seg.text) if glossary else seg.text,
                 provider="passthrough",
             )
             for seg in segments
@@ -70,9 +78,39 @@ async def translate_segments(
         # Fallback to original text if provider fails
         results_map = {item.id: item.text for item in items}
 
+    # Pass 2: Refine overflowing segments if requested
+    if two_pass and for_dubbing:
+        refine_items: list[TranslateItem] = []
+        for item in items:
+            cur_text = results_map.get(item.id, "")
+            if item.max_chars and len(cur_text) > item.max_chars:
+                refine_items.append(
+                    TranslateItem(
+                        id=item.id,
+                        text=f"Please shorten this translation strictly under {item.max_chars} chars: {cur_text}",
+                        max_chars=item.max_chars,
+                        duration=item.duration,
+                    )
+                )
+        if refine_items:
+            try:
+                refine_results = await provider.translate(
+                    refine_items,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    context=["Make translations concise to fit strict audio timing budgets."],
+                )
+                for r in refine_results:
+                    if len(r.text) <= (refine_items[0].max_chars or 9999):
+                        results_map[r.id] = r.text
+            except Exception:
+                pass
+
     translated_segments: list[TranslatedSegment] = []
     for seg in segments:
         text = results_map.get(seg.seg_id, seg.text)
+        if glossary:
+            text = glossary.apply(text)
         translated_segments.append(
             TranslatedSegment(
                 seg=seg,

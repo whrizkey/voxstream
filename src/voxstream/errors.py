@@ -24,3 +24,7 @@ class ProviderError(VoxStreamError):
 
 class PipelineError(VoxStreamError):
     """Raised when scheduling or processing within the media pipeline fails."""
+
+
+class ExternalToolError(VoxStreamError):
+    """Raised when an external tool (ffmpeg, ffprobe, demucs, yt-dlp) fails or is missing."""
