@@ -193,8 +193,11 @@ class DubMixer:
             def _audio_callback(
                 outdata: np.ndarray, frames: int, time_info: Any, status: Any
             ) -> None:
-                buf = self.mix_buffer(frames)
-                outdata[:] = buf.reshape(-1, 1)
+                try:
+                    buf = self.mix_buffer(frames)
+                    outdata[:] = buf.reshape(-1, 1)
+                except Exception:
+                    outdata.fill(0.0)
 
             self._stream = sd.OutputStream(
                 samplerate=self.sample_rate,

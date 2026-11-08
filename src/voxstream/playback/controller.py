@@ -232,7 +232,8 @@ class PlaybackController:
     def play(self) -> None:
         self._user_paused = False
         if self.mode in ("dub", "both"):
-            self.mixer.start_stream()
+            if not isinstance(self.player, VirtualPlayer):
+                self.mixer.start_stream()
             self.mixer.resume()
         self.player.play()
 

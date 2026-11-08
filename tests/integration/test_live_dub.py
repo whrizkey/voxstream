@@ -51,18 +51,21 @@ async def test_live_dubbing_timing_and_seek_drift(dub_sample_wav: Path) -> None:
             cache_dir=cache_dir,
         )
 
-        # Pre-buffer initial state
-        await controller.step()
-        controller.play()
+        try:
+            # Pre-buffer initial state
+            await controller.step()
+            controller.play()
 
-        # Perform 10 random seeks and assert drift stays bounded within 80ms
-        random.seed(123)
-        for _ in range(10):
-            target = random.uniform(0.0, 50.0)
-            controller.seek(target)
-            # Re-anchor
-            controller.mixer.update_anchor(target)
-            assert controller.mixer.last_drift <= 0.08
-            # Buffer audio output
-            buf = controller.mixer.mix_buffer(512)
-            assert len(buf) == 512
+            # Perform 10 random seeks and assert drift stays bounded within 80ms
+            random.seed(123)
+            for _ in range(10):
+                target = random.uniform(0.0, 50.0)
+                controller.seek(target)
+                # Re-anchor
+                controller.mixer.update_anchor(target)
+                assert controller.mixer.last_drift <= 0.08
+                # Buffer audio output
+                buf = controller.mixer.mix_buffer(512)
+                assert len(buf) == 512
+        finally:
+            controller.close()

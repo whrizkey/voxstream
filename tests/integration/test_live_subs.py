@@ -49,23 +49,26 @@ async def test_live_seek_storm(long_sample_wav: Path) -> None:
             cache_dir=cache_dir,
         )
 
-        # Pre-buffer initial state
-        await controller.step()
-
-        # Execute 20 random seeks
-        random.seed(42)
-        for _ in range(20):
-            target = random.uniform(0.0, 110.0)
-            controller.seek(target)
-            assert abs(player.get_time_pos() - target) < 0.05
-            # Step the scheduler at the new position
+        try:
+            # Pre-buffer initial state
             await controller.step()
-            # If the chunk was processed, subtitle lookup works without crash
-            _ = controller.get_active_subtitle()
 
-        # Cache remains healthy
-        stats = controller.cache.get_stats()
-        assert stats["media_count"] >= 1
+            # Execute 20 random seeks
+            random.seed(42)
+            for _ in range(20):
+                target = random.uniform(0.0, 110.0)
+                controller.seek(target)
+                assert abs(player.get_time_pos() - target) < 0.05
+                # Step the scheduler at the new position
+                await controller.step()
+                # If the chunk was processed, subtitle lookup works without crash
+                _ = controller.get_active_subtitle()
+
+            # Cache remains healthy
+            stats = controller.cache.get_stats()
+            assert stats["media_count"] >= 1
+        finally:
+            controller.close()
 
 
 @pytest.mark.asyncio
@@ -84,17 +87,20 @@ async def test_live_underrun_pauses_and_resumes(long_sample_wav: Path) -> None:
             cache_dir=cache_dir,
         )
 
-        # Jump far ahead to unbuffered chunk at 95.0s
-        controller.seek(95.0)
-        assert controller.is_buffering is True
-        assert player.is_paused() is True
+        try:
+            # Jump far ahead to unbuffered chunk at 95.0s
+            controller.seek(95.0)
+            assert controller.is_buffering is True
+            assert player.is_paused() is True
 
-        # Run scheduler step to process the unbuffered chunk
-        await controller.step()
+            # Run scheduler step to process the unbuffered chunk
+            await controller.step()
 
-        # Once ready, buffering clears and player resumes automatically
-        assert controller.is_buffering is False
-        assert player.is_paused() is False
+            # Once ready, buffering clears and player resumes automatically
+            assert controller.is_buffering is False
+            assert player.is_paused() is False
+        finally:
+            controller.close()
 
 
 @pytest.mark.asyncio
@@ -113,10 +119,13 @@ async def test_manual_pause_prevents_buffering_autoresume(long_sample_wav: Path)
             cache_dir=cache_dir,
         )
 
-        controller.seek(95.0)
-        assert controller.is_buffering is True
-        controller.pause()
+        try:
+            controller.seek(95.0)
+            assert controller.is_buffering is True
+            controller.pause()
 
-        await controller.step()
-        assert controller.is_buffering is False
-        assert player.is_paused() is True
+            await controller.step()
+            assert controller.is_buffering is False
+            assert player.is_paused() is True
+        finally:
+            controller.close()
