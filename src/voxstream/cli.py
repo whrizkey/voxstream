@@ -74,14 +74,31 @@ def list_providers() -> None:
 def play(
     target: Annotated[str, typer.Argument(help="Video file path or stream URL.")],
     to: Annotated[str, typer.Option("--to", "-t", help="Target language code (e.g. ja, es, de).")],
-    mode: Annotated[str, typer.Option("--mode", "-m", help="Mode: subs | dub | both")] = "both",
+    mode: Annotated[str, typer.Option("--mode", "-m", help="Mode: subs | dub | both")] = "subs",
     source_lang: Annotated[
         str | None, typer.Option("--from", "-f", help="Source language (default auto-detect).")
     ] = None,
 ) -> None:
     """Stream media with live translated subtitles and/or dubbed audio."""
-    console.print("[bold yellow]Live player queued for Milestone 4 & 5.[/bold yellow]")
-    console.print(f"Target: {target} | Target Language: {to} | Mode: {mode}")
+    from voxstream.playback.controller import PlaybackController
+
+    target_path = Path(target)
+    if not target_path.exists():
+        console.print(f"[bold red]Error:[/bold red] File not found: {target}")
+        raise typer.Exit(code=4)
+
+    controller = PlaybackController(target_path, to, source_lang=source_lang)
+    console.print(f"\n[bold cyan]Starting Live Playback[/bold cyan] ({target_path.name} -> {to})")
+    console.print(f" • Mode: {mode} | Duration: {controller.probe.duration:.2f}s")
+    console.print(" • Press Ctrl+C to exit.\n")
+
+    async def _live_loop() -> None:
+        # Pre-buffer initial chunks
+        await controller.step()
+        controller.player.play()
+        console.print("[green]Playback started.[/green]")
+
+    asyncio.run(_live_loop())
 
 
 @app.command()
