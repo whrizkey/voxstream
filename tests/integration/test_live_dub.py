@@ -36,7 +36,7 @@ def dub_sample_wav() -> Generator[Path, None, None]:
 
 @pytest.mark.asyncio
 async def test_live_dubbing_timing_and_seek_drift(dub_sample_wav: Path) -> None:
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         cache_dir = Path(tmp_dir) / "cache"
         player = VirtualPlayer(duration=60.0)
 

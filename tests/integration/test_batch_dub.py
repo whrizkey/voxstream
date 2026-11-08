@@ -36,7 +36,7 @@ def synthetic_video_wav() -> Generator[Path, None, None]:
 
 @pytest.mark.asyncio
 async def test_batch_offline_dubbing_and_muxing(synthetic_video_wav: Path) -> None:
-    with tempfile.TemporaryDirectory() as out_dir_str:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as out_dir_str:
         out_dir = Path(out_dir_str)
 
         stats = await process_media_offline(

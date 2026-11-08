@@ -34,7 +34,7 @@ def test_video_wav() -> Generator[Path, None, None]:
 
 @pytest.mark.asyncio
 async def test_batch_offline_subtitles_and_cache(test_video_wav: Path) -> None:
-    with tempfile.TemporaryDirectory() as out_dir_str:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as out_dir_str:
         out_dir = Path(out_dir_str)
 
         # Run 1: Cold run

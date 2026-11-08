@@ -18,7 +18,7 @@ async def test_scheduler_seek_increments_generation() -> None:
         ChunkSpec(index=0, start=0.0, end=30.0, pad_before=0.0, pad_after=2.0),
         ChunkSpec(index=1, start=30.0, end=60.0, pad_before=2.0, pad_after=2.0),
     ]
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         cache = CacheManager(Path(tmp_dir))
         scheduler = LookaheadScheduler(
             playhead_fn=lambda: 0.0,
@@ -46,7 +46,7 @@ async def test_scheduler_buffering_notifications() -> None:
     ]
     buffering_events: list[bool] = []
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         cache = CacheManager(Path(tmp_dir))
         scheduler = LookaheadScheduler(
             playhead_fn=lambda: 0.0,

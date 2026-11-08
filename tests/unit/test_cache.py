@@ -12,7 +12,7 @@ from voxstream.pipeline.cache import (
 
 
 def test_cache_manager_crud() -> None:
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         cache = CacheManager(Path(tmp_dir))
         media_id = "test_media_999"
 
