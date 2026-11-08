@@ -21,34 +21,35 @@ class MediaProbeResult:
 
 
 def probe_media(path_or_url: str | Path) -> MediaProbeResult:
-    """Probe media file or stream URL using ffprobe."""
-    ffprobe_bin = shutil.which("ffprobe")
-    if not ffprobe_bin:
-        # Fallback to soundfile for audio files if ffprobe binary is absent
-        try:
-            import soundfile as sf
-
-            info = sf.info(str(path_or_url))
-            return MediaProbeResult(
-                path_or_url=str(path_or_url),
-                duration=float(info.duration),
-                has_audio=True,
-                has_video=False,
-                audio_sample_rate=int(info.samplerate),
-                audio_channels=int(info.channels),
-            )
-        except Exception:
-            raise MediaError(
-                "ffprobe binary not found on system PATH. Install ffmpeg to probe media."
-            ) from None
-
+    """Probe media file or stream URL using ffprobe with soundfile fast-path for audio."""
     target_str = str(path_or_url)
+
+    # Fast in-process probing for local audio files (avoids subprocess in worker threads)
     if not target_str.startswith(("http://", "https://")):
         path_obj = Path(path_or_url)
         if not path_obj.exists():
             raise MediaError(f"Media file does not exist: {target_str}")
+        if path_obj.suffix.lower() in (".wav", ".flac", ".ogg"):
+            try:
+                import soundfile as sf
+
+                info = sf.info(str(path_obj))
+                return MediaProbeResult(
+                    path_or_url=target_str,
+                    duration=float(info.duration),
+                    has_audio=True,
+                    has_video=False,
+                    audio_sample_rate=int(info.samplerate),
+                    audio_channels=int(info.channels),
+                )
+            except Exception:
+                pass
         if target_str.startswith("-"):
             target_str = f"./{target_str}"
+
+    ffprobe_bin = shutil.which("ffprobe")
+    if not ffprobe_bin:
+        raise MediaError("ffprobe binary not found on system PATH. Install ffmpeg to probe media.")
 
     cmd = [
         ffprobe_bin,
