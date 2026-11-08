@@ -1,18 +1,22 @@
-"""Status pill widget displaying pipeline state."""
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from typing import Any, ClassVar
-
-try:
+if TYPE_CHECKING:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QLabel
 
     HAS_QT = True
-except ImportError:
-    HAS_QT = False
-    QLabel = object
+else:
+    try:
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+
+        HAS_QT = True
+    except ImportError:
+        HAS_QT = False
+        QLabel = object
 
 
-class StatusPill(QLabel if HAS_QT else object):  # type: ignore
+class StatusPill(QLabel if HAS_QT else object):  # type: ignore[misc]
     """Colored status pill indicating player and scheduler status."""
 
     STATUS_COLORS: ClassVar[dict[str, str]] = {

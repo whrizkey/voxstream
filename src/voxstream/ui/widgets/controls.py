@@ -1,8 +1,6 @@
-"""Media transport, mode selection, and audio controls."""
+from typing import TYPE_CHECKING, Any
 
-from typing import Any
-
-try:
+if TYPE_CHECKING:
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtWidgets import (
         QComboBox,
@@ -13,15 +11,27 @@ try:
     )
 
     HAS_QT = True
-except ImportError:
-    HAS_QT = False
-    QWidget = object
+else:
+    try:
+        from PySide6.QtCore import Qt, Signal
+        from PySide6.QtWidgets import (
+            QComboBox,
+            QHBoxLayout,
+            QPushButton,
+            QSlider,
+            QWidget,
+        )
 
-    def Signal(*args: Any, **kwargs: Any) -> Any:
-        return None
+        HAS_QT = True
+    except ImportError:
+        HAS_QT = False
+        QWidget = object
+
+        def Signal(*args: Any, **kwargs: Any) -> Any:
+            return None
 
 
-class TransportControls(QWidget if HAS_QT else object):  # type: ignore
+class TransportControls(QWidget if HAS_QT else object):  # type: ignore[misc]
     """Transport and mode control bar."""
 
     if HAS_QT:

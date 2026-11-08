@@ -10,6 +10,9 @@ import soundfile as sf
 
 from voxstream.media.probe import probe_media
 from voxstream.pipeline.batch import process_media_offline
+from voxstream.providers.stt.fake import FakeSttProvider
+from voxstream.providers.translate.fake import FakeTranslateProvider
+from voxstream.providers.tts.fake import FakeTtsProvider
 
 
 @pytest.fixture
@@ -43,6 +46,9 @@ async def test_batch_offline_dubbing_and_muxing(synthetic_video_wav: Path) -> No
             mode="both",
             mux=True,
             cache_dir=out_dir / "cache",
+            stt_provider=FakeSttProvider(),
+            translate_provider=FakeTranslateProvider(),
+            tts_provider=FakeTtsProvider(),
         )
 
         assert stats["total_segments"] > 0

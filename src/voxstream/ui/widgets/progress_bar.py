@@ -1,21 +1,25 @@
-"""Dual-layer seek bar displaying playback position and processed lookahead buffer."""
+from typing import TYPE_CHECKING, Any
 
-from typing import Any
-
-try:
+if TYPE_CHECKING:
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtWidgets import QSlider
 
     HAS_QT = True
-except ImportError:
-    HAS_QT = False
-    QSlider = object
+else:
+    try:
+        from PySide6.QtCore import Qt, Signal
+        from PySide6.QtWidgets import QSlider
 
-    def Signal(*args: Any, **kwargs: Any) -> Any:
-        return None
+        HAS_QT = True
+    except ImportError:
+        HAS_QT = False
+        QSlider = object
+
+        def Signal(*args: Any, **kwargs: Any) -> Any:
+            return None
 
 
-class ProcessedRegionSlider(QSlider if HAS_QT else object):  # type: ignore
+class ProcessedRegionSlider(QSlider if HAS_QT else object):  # type: ignore[misc]
     """Slider rendering both current playhead position and processed lookahead region."""
 
     if HAS_QT:

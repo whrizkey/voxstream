@@ -1,8 +1,6 @@
-"""Settings dialog with masked API keys and provider configuration."""
+from typing import TYPE_CHECKING, Any
 
-from typing import Any
-
-try:
+if TYPE_CHECKING:
     from PySide6.QtWidgets import (
         QComboBox,
         QDialog,
@@ -14,14 +12,27 @@ try:
     )
 
     HAS_QT = True
-except ImportError:
-    HAS_QT = False
-    QDialog = object
+else:
+    try:
+        from PySide6.QtWidgets import (
+            QComboBox,
+            QDialog,
+            QDialogButtonBox,
+            QDoubleSpinBox,
+            QFormLayout,
+            QLineEdit,
+            QVBoxLayout,
+        )
+
+        HAS_QT = True
+    except ImportError:
+        HAS_QT = False
+        QDialog = object
 
 from voxstream.config import get_settings
 
 
-class SettingsDialog(QDialog if HAS_QT else object):  # type: ignore
+class SettingsDialog(QDialog if HAS_QT else object):  # type: ignore[misc]
     """Modal dialog for configuring providers, parameters, and masked API credentials."""
 
     def __init__(self, parent: Any = None) -> None:

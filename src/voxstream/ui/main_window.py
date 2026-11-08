@@ -1,9 +1,7 @@
-"""Main desktop application window for VoxStream."""
-
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-try:
+if TYPE_CHECKING:
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import (
         QFileDialog,
@@ -15,9 +13,22 @@ try:
     )
 
     HAS_QT = True
-except ImportError:
-    HAS_QT = False
-    QMainWindow = object
+else:
+    try:
+        from PySide6.QtCore import Qt, QTimer
+        from PySide6.QtWidgets import (
+            QFileDialog,
+            QHBoxLayout,
+            QLabel,
+            QMainWindow,
+            QVBoxLayout,
+            QWidget,
+        )
+
+        HAS_QT = True
+    except ImportError:
+        HAS_QT = False
+        QMainWindow = object
 
 from voxstream.playback.controller import PlaybackController
 from voxstream.ui.settings_dialog import SettingsDialog
@@ -26,7 +37,7 @@ from voxstream.ui.widgets.progress_bar import ProcessedRegionSlider
 from voxstream.ui.widgets.status_pill import StatusPill
 
 
-class MainWindow(QMainWindow if HAS_QT else object):  # type: ignore
+class MainWindow(QMainWindow if HAS_QT else object):  # type: ignore[misc]
     """Main window with embedded video surface, subtitle overlay, and transport controls."""
 
     def __init__(self) -> None:

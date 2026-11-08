@@ -1,7 +1,27 @@
-"""Unit tests for UI components, status pill, and secret masking."""
+from collections.abc import Generator
+from typing import Any
+
+import pytest
 
 from voxstream.ui.widgets.progress_bar import ProcessedRegionSlider
 from voxstream.ui.widgets.status_pill import StatusPill
+
+
+@pytest.fixture(autouse=True)
+def ensure_qapp() -> Generator[Any, None, None]:
+    """Ensure headless QApplication instance exists if Qt is available."""
+    from voxstream.ui.widgets.status_pill import HAS_QT
+
+    if not HAS_QT:
+        yield None
+        return
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(["-platform", "offscreen"])
+    yield app
 
 
 def test_status_pill_status_colors() -> None:

@@ -9,6 +9,8 @@ import pytest
 import soundfile as sf
 
 from voxstream.pipeline.batch import process_media_offline
+from voxstream.providers.stt.fake import FakeSttProvider
+from voxstream.providers.translate.fake import FakeTranslateProvider
 
 
 @pytest.fixture
@@ -37,12 +39,16 @@ async def test_batch_offline_subtitles_and_cache(test_video_wav: Path) -> None:
 
         # Run 1: Cold run
         test_cache_dir = out_dir / "cache"
+        stt = FakeSttProvider()
+        tr = FakeTranslateProvider()
         stats1 = await process_media_offline(
             input_path=test_video_wav,
             target_lang="es",
             output_dir=out_dir,
             mode="subs",
             cache_dir=test_cache_dir,
+            stt_provider=stt,
+            translate_provider=tr,
         )
 
         assert stats1["total_chunks"] == 2
@@ -61,6 +67,8 @@ async def test_batch_offline_subtitles_and_cache(test_video_wav: Path) -> None:
             output_dir=out_dir,
             mode="subs",
             cache_dir=test_cache_dir,
+            stt_provider=stt,
+            translate_provider=tr,
         )
 
         assert stats2["total_chunks"] == 2
