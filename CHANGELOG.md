@@ -55,15 +55,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Provider Misconfiguration:** Raised `ConfigurationError` when configured STT/translation/TTS providers are missing credentials rather than silently substituting fake test providers.
 - **Secret Redaction:** Redacted bearer tokens, HTTP 5xx responses, and API keys (`sk-`, `sk-ant-`, `deep-`, `Bearer`, query params) from logs and error traces. Stored API keys in `SecretStr`.
 - **Media Argument Sanitization:** Added `-protocol_whitelist "file,http,https,tcp,tls,crypto"`, `--` separator, and `./` path sanitization to `ffmpeg` and `ffprobe` invocations.
-- **CWD Environment Isolation:** Restricted `.env` loading to explicit paths (`VOXSTREAM_ENV_FILE`), `~/.config/voxstream/.env`, or the repository root with `.git`.
+- **CWD Environment Isolation:** Pinned `.env` loading strictly to user home configurations (`~/.config/voxstream/.env`, `~/.voxstream.env`) or explicit `VOXSTREAM_ENV_FILE`, preventing automatic ingestion from arbitrary project directories.
+- **Hostname-Parsed Loopback Endpoints:** Replaced substring checking with strict URI hostname parsing (`{"localhost", "127.0.0.1", "::1"}`) to eliminate endpoint spoofing on domains like `notlocalhost.example.com`.
+- **Stream Ingestion Transparency:** Documented `yt-dlp` redirect and streaming behavior across `http`, `https`, `rtmp`, `rtsp`, and `mms` URLs in the security guide.
 - **CI Hardening:** Pinned GitHub Actions to immutable commit SHAs, restricted default token permissions with `permissions: contents: read`, added `pip-audit` security vulnerability scans, and configured Dependabot.
 
 ### Fixed
 - **Seek Stalled Chunks:** Resolved issue where chunks interrupted in `TRANSCRIBED` state during a generation bump were not re-scheduled by `LookaheadScheduler.step()`.
 - **Dynamic Cache Keys:** Replaced hardcoded cache parameters with active provider names, models, language codes, and chunk slicing parameters.
-- **Edge TTS Event Loop Collision:** Implemented thread-isolated voice discovery in `EdgeTtsProvider.list_voices()` and added `list_voices_async()` to avoid event loop conflicts. Added language-specific default voice fallback.
+- **Edge TTS Event Loop Collision:** Implemented thread-isolated voice discovery in `EdgeTtsProvider.list_voices()` and added `list_voices_async()` to avoid event loop conflicts. Added language-specific default voice fallback and graceful ProviderError handling.
 - **Audio Resampling in Dub Mixer:** Implemented pre-decoding and linear resampling for clips with mismatched sample rates (such as Piper's 22.05 kHz audio into 24 kHz mixer).
-- **Audio Callback Thread Safety:** Eliminated blocking disk I/O from mixer playback callback and added thread synchronization locks for clip updates.
+- **Audio Callback Thread Safety:** Eliminated blocking disk I/O from mixer playback callback, added defensive `list(self.clips)` snapshots, and protected clip operations with thread locks.
 - **Async Execution:** Moved blocking ffmpeg audio extraction to threadpool executor and converted Piper TTS synthesis to non-blocking async subprocess execution.
 - **Pause & Underrun Coordination:** Preserved user pause state during underrun buffering recovery so manual pauses are not overridden by buffer completion.
 - **CLI Wiring:** Wired `--mux` flag in `voxstream process`, implemented real LRU cache pruning in `voxstream cache prune`, and enabled URL playback with `MpvPlayer` in `voxstream play`.

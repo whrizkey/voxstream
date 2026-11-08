@@ -117,9 +117,18 @@ def test_registry_factories() -> None:
 
 @pytest.mark.asyncio
 async def test_edge_tts_voice_selection_with_running_loop() -> None:
+    import importlib.util
+
+    from voxstream.errors import ProviderError
     from voxstream.providers.tts.edge import EdgeTtsProvider
 
     provider = EdgeTtsProvider()
+    if importlib.util.find_spec("edge_tts") is None:
+        with pytest.raises(ProviderError) as exc_info:
+            provider.list_voices("es")
+        assert "not installed" in str(exc_info.value)
+        return
+
     voices = provider.list_voices("es")
     assert len(voices) > 0
     assert any(
@@ -149,3 +158,16 @@ def test_unusable_provider_raises_configuration_error(
             target_lang="es",
         )
     assert "not usable" in str(exc_info.value)
+
+
+def test_localhost_endpoint_parsing_prevents_subdomain_spoofing() -> None:
+    from voxstream.providers.registry import _is_local_endpoint
+
+    assert _is_local_endpoint("http://localhost:11434/v1") is True
+    assert _is_local_endpoint("http://127.0.0.1:8000/v1") is True
+    assert _is_local_endpoint("http://[::1]:8080/v1") is True
+
+    # Substring matches on non-loopback domains must evaluate to False
+    assert _is_local_endpoint("https://notlocalhost.example.com/v1") is False
+    assert _is_local_endpoint("https://attacker.localhost.evil.com") is False
+    assert _is_local_endpoint("https://api.openai.com/v1") is False

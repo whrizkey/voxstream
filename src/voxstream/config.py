@@ -21,10 +21,10 @@ def _resolve_env_file() -> Path | None:
     if user_env.is_file():
         return user_env
 
-    # 3. Git repo root (only if .git directory is present)
-    cwd = Path.cwd()
-    if (cwd / ".git").is_dir() and (cwd / ".env").is_file():
-        return cwd / ".env"
+    # 3. User home directory ~/.voxstream.env
+    home_env = Path.home() / ".voxstream.env"
+    if home_env.is_file():
+        return home_env
 
     return None
 

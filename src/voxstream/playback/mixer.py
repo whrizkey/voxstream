@@ -145,11 +145,13 @@ class DubMixer:
 
         # Find overlapping clips using thread-safe snapshot
         with self._lock:
-            overlapping_clips = [
-                c
-                for c in self.clips
-                if not (c.start + c.duration <= media_start or c.start >= media_end)
-            ]
+            clips_snapshot = list(self.clips)
+
+        overlapping_clips = [
+            c
+            for c in clips_snapshot
+            if not (c.start + c.duration <= media_start or c.start >= media_end)
+        ]
 
         for clip in overlapping_clips:
             active_dub_in_buffer = True

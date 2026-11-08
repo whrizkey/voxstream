@@ -262,8 +262,10 @@ When a run finishes, a clear cost breakdown table is printed to your console. If
 
 ### Security Measures
 - **Credential Protection:** API keys are stored as `SecretStr` instances, preventing accidental disclosure in tracebacks or object representations. Secret redaction sanitizes bearer tokens, API keys, and HTTP 5xx error text in logs.
-- **Environment Isolation:** `.env` files are not loaded blindly from arbitrary working directories. Loading is restricted to an explicit `VOXSTREAM_ENV_FILE`, `~/.config/voxstream/.env`, or the repository root containing a `.git` directory.
-- **Untrusted Media Handling:** Subprocess invocations of `ffmpeg` and `ffprobe` enforce strict protocol whitelists (`-protocol_whitelist "file,http,https,tcp,tls,crypto"`), option delimiters (`--`), and prefix escaping for filenames starting with dashes.
+- **Environment Isolation:** `.env` files are not loaded from current working directories to avoid running against malicious `.env` files in cloned repositories. Configuration resolution is strictly pinned to `VOXSTREAM_ENV_FILE`, `~/.config/voxstream/.env`, or `~/.voxstream.env`.
+- **Hostname-Validated Local Endpoints:** Local inference base URLs for Ollama/LM Studio are verified by hostname parsing (`localhost`, `127.0.0.1`, `::1`) rather than substring matching to avoid spoofing.
+- **Subprocess & Protocol Whitelisting:** Subprocess invocations of `ffmpeg` and `ffprobe` enforce strict protocol whitelists (`-protocol_whitelist "file,http,https,tcp,tls,crypto"`), option delimiters (`--`), and prefix escaping for filenames starting with dashes.
+- **Network Streaming & URL Ingestion:** `voxstream play` accepts web URLs and streaming protocols (`http`, `https`, `rtmp`, `rtsp`, `mms`) resolved via `yt-dlp` and `libmpv` (`ytdl=True`). When accepting URLs from untrusted sources in automated pipelines, be aware that mpv and yt-dlp will follow network redirects, perform DNS resolution, and stream remote media according to their default network configurations.
 - **Path Traversal Defenses:** Cache clearing operations validate media IDs against `^[0-9a-f]{32}$` and verify strict filesystem containment within the designated cache directory.
 
 ---

@@ -4,6 +4,7 @@ import importlib.util
 import shutil
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlparse
 
 from voxstream.config import get_settings
 from voxstream.errors import ConfigurationError
@@ -20,6 +21,17 @@ from voxstream.providers.tts.elevenlabs import ElevenLabsTtsProvider
 from voxstream.providers.tts.fake import FakeTtsProvider
 from voxstream.providers.tts.openai import OpenAiTtsProvider
 from voxstream.providers.tts.piper import PiperTtsProvider
+
+
+def _is_local_endpoint(url: str | None) -> bool:
+    """Check if URL points to a loopback address using proper hostname parsing."""
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+        return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True)
@@ -45,11 +57,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
                 reason=None if has_mod else "faster-whisper package not installed",
             )
         elif name in ("openai_compat", "openai_compat_stt"):
-            has_key = bool(
-                settings.openai_key_str
-                or "localhost" in settings.openai_base_url
-                or "127.0.0.1" in settings.openai_base_url
-            )
+            has_key = bool(settings.openai_key_str or _is_local_endpoint(settings.openai_base_url))
             return ProviderStatus(
                 name=name,
                 kind=kind,
@@ -58,11 +66,7 @@ def check_provider_usable(kind: Literal["stt", "translate", "tts"], name: str) -
             )
     elif kind == "translate":
         if name == "openai_compat":
-            has_key = bool(
-                settings.openai_key_str
-                or "localhost" in settings.openai_base_url
-                or "127.0.0.1" in settings.openai_base_url
-            )
+            has_key = bool(settings.openai_key_str or _is_local_endpoint(settings.openai_base_url))
             return ProviderStatus(
                 name=name,
                 kind=kind,
