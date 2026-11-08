@@ -145,7 +145,8 @@ async def synthesize_and_fit_segment(
         )
 
     # 3. Apply time stretching / truncation if necessary
-    processed_clip_path = output_dir / f"{seg.seg_id}.wav"
+    safe_seg_id = seg.seg_id.replace(":", "_")
+    processed_clip_path = output_dir / f"{safe_seg_id}.wav"
     if decision.speed_factor > 1.01:
         time_stretch_audio(final_wav, processed_clip_path, decision.speed_factor)
         if final_wav.exists():

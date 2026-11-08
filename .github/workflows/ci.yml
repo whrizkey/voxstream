@@ -48,7 +48,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up FFmpeg
+      - name: Set up FFmpeg (Linux & Windows)
+        if: runner.os != 'macOS'
         uses: FedericoCarboni/setup-ffmpeg@v3
 
       - name: Install uv

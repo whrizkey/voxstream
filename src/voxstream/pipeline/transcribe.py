@@ -45,7 +45,7 @@ def deduplicate_and_clean_segments(
         if lower in KNOWN_HALLUCINATIONS and (raw.confidence is not None and raw.confidence < 0.3):
             continue
 
-        seg_id = f"{media_id}:{round(abs_start * 1000)}:{round(abs_end * 1000)}"
+        seg_id = f"{media_id}_{round(abs_start * 1000)}_{round(abs_end * 1000)}"
         cleaned.append(
             Segment(
                 chunk_index=chunk.index,
@@ -70,7 +70,7 @@ def deduplicate_and_clean_segments(
             if dur < 0.6 and 0.0 <= gap < 0.2:
                 # Merge curr and nxt
                 merged_text = f"{curr.text} {nxt.text}"
-                merged_id = f"{media_id}:{round(curr.start * 1000)}:{round(nxt.end * 1000)}"
+                merged_id = f"{media_id}_{round(curr.start * 1000)}_{round(nxt.end * 1000)}"
                 curr = Segment(
                     chunk_index=curr.chunk_index,
                     seg_id=merged_id,
